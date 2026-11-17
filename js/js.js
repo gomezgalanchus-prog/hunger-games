@@ -1399,7 +1399,202 @@ function escenaInicial() {
 }
 
 function conOpcionesBarajadas(escena) {
-  return { ...escena, opciones: barajar(escena.opciones) };
+  // La apertura (la cornucopia) mantiene siempre sus tres opciones; el resto varía
+  if (escena.id === 'cornucopia' || escena.apertura) {
+    return { ...escena, opciones: barajar(escena.opciones) };
+  }
+  return { ...escena, opciones: opcionesVariadas(escena) };
+}
+
+/* ============================================================
+   BANCO DE OPCIONES
+   A cada escena se le añaden opciones nuevas de su familia, así que
+   dos partidas no ofrecen nunca el mismo trío. La escena de apertura
+   (la cornucopia) se queda siempre con sus tres opciones.
+   ============================================================ */
+
+const OPCIONES_EXTRA = {
+  atacar: [
+    { texto: 'Rematarle antes de que se levante.', tipo: 'atacar', efecto: 'Muerte segura · fama' },
+    { texto: 'Quitarle el arma de las manos.', tipo: 'riesgo', efecto: 'Arma · contraataque' },
+    { texto: 'Pelear sucio: tierra a los ojos y a la yugular.', tipo: 'atacar', efecto: 'Daño alto · imagen ↓' },
+    { texto: 'Hacer ruido para que vengan los mutos a por él.', tipo: 'riesgo', efecto: 'Peligro para todos' },
+    { texto: 'Ofrecerle un alto el fuego delante de las cámaras.', tipo: 'ayudar', efecto: 'Fama ↑ · alianza' },
+    { texto: 'Empujarle al agua y esperar abajo.', tipo: 'atacar', efecto: 'Ahogo · cansancio' },
+    { texto: 'Robarle la mochila mientras se cubre.', tipo: 'sigilo', efecto: 'Equipo · sin sangre' },
+    { texto: 'Dejarle vivir para que el Capitolio tenga su drama.', tipo: 'alianza', efecto: 'Aliado raro' },
+    { texto: 'Provocarle para que ataque primero.', tipo: 'riesgo', efecto: 'Ventaja · herida' },
+    { texto: 'Lanzarle una piedra y ver cuánto aguanta.', tipo: 'atacar', efecto: 'Hostigamiento' },
+    { texto: 'Gritar su nombre para que el público sepa quién manda.', tipo: 'riesgo', efecto: 'Fama ↑↑ · todos te oyen' },
+    { texto: 'Apagar la hoguera y desaparecer en la confusión.', tipo: 'huir', efecto: 'Escapas · sin botín' },
+    { texto: 'Pedir a los patrocinadores un cuchillo ahora mismo.', tipo: 'riesgo', efecto: 'Envío · fama' },
+    { texto: 'Ofrecerle un trueque: tu comida por su arma.', tipo: 'alianza', efecto: 'Arma · comida ↓' },
+    { texto: 'Cubrirte detrás de un tronco y esperar su error.', tipo: 'sigilo', efecto: 'Paciencia · cansancio' },
+    { texto: 'Aceptar el duelo a muerte delante de las cámaras.', tipo: 'atacar', efecto: 'Todo o nada' },
+    { texto: 'Amenazarle con contar lo que hizo en el entrenamiento.', tipo: 'riesgo', efecto: 'Chantaje · fama' },
+    { texto: 'Marcar el territorio con el arma y retroceder.', tipo: 'sigilo', efecto: 'Territorio · sin riesgo' }
+  ],
+  huir: [
+    { texto: 'Correr hasta que revienten los pulmones.', tipo: 'huir', efecto: 'Escapas · cansancio' },
+    { texto: 'Meterte en el agua y salir cien metros más abajo.', tipo: 'sigilo', efecto: 'Rastro perdido' },
+    { texto: 'Soltar el botín para correr más.', tipo: 'huir', efecto: 'Escapas · pierdes equipo' },
+    { texto: 'Trepar a un árbol y no mirar abajo.', tipo: 'sigilo', efecto: 'Escondite · cordura ↓' },
+    { texto: 'Girarte y encarar a quien te persigue.', tipo: 'atacar', efecto: 'Combate · arma' },
+    { texto: 'Tirar una trampa en el camino.', tipo: 'riesgo', efecto: 'Perseguidor herido' },
+    { texto: 'Gritar hacia el cielo pidiendo ayuda al Capitolio.', tipo: 'riesgo', efecto: 'Fama · te localizan' },
+    { texto: 'Esconderte en la maleza y aguantar la respiración.', tipo: 'sigilo', efecto: 'Seguro · cordura ↓' },
+    { texto: 'Cruzar el claro abierto aunque te vean.', tipo: 'riesgo', efecto: 'Rápido · visible' },
+    { texto: 'Buscar a un aliado en la dirección contraria.', tipo: 'alianza', efecto: 'Refuerzos' },
+    { texto: 'Cortar los arbustos a tu paso para borrar el rastro.', tipo: 'sigilo', efecto: 'Rastro perdido · lento' },
+    { texto: 'Dejar caer la capa y cambiar de dirección.', tipo: 'sigilo', efecto: 'Señuelo' },
+    { texto: 'Esperar agazapado y atacar por sorpresa.', tipo: 'atacar', efecto: 'Ventaja · suerte' },
+    { texto: 'Correr hacia la cornucopia: nadie espera eso.', tipo: 'riesgo', efecto: 'Botín · mucho peligro' },
+    { texto: 'Zambullirte en el lago y nadar bajo el agua.', tipo: 'huir', efecto: 'Escapas · frío' }
+  ],
+  sigilo: [
+    { texto: 'Seguirle a distancia y aprender su ruta.', tipo: 'sigilo', efecto: 'Información · tiempo' },
+    { texto: 'Robarle la comida sin que lo note.', tipo: 'sigilo', efecto: 'Comida · riesgo' },
+    { texto: 'Esperar a que duerma y pasar de largo.', tipo: 'sigilo', efecto: 'Seguro · cansancio' },
+    { texto: 'Marcar su escondite con una piedra pintada.', tipo: 'sigilo', efecto: 'Mapa mental' },
+    { texto: 'Asustarle con un ruido para que huya del buen sitio.', tipo: 'riesgo', efecto: 'Territorio · fama' },
+    { texto: 'Atacarle mientras duerme.', tipo: 'atacar', efecto: 'Ventaja · imagen ↓' },
+    { texto: 'Despertarle y proponerle una alianza.', tipo: 'alianza', efecto: 'Aliado' },
+    { texto: 'Escuchar lo que habla con el Capitolio.', tipo: 'sigilo', efecto: 'Información secreta' },
+    { texto: 'Dejarle un regalo envenenado.', tipo: 'riesgo', efecto: 'Trampa · cruel' },
+    { texto: 'Retroceder sin tocar nada.', tipo: 'huir', efecto: 'Sin riesgo · sin premio' },
+    { texto: 'Imitar el sonido de un muto para asustarle.', tipo: 'riesgo', efecto: 'Fama ↑ · peligro' },
+    { texto: 'Cubrirte de barro y pasar por el suelo.', tipo: 'sigilo', efecto: 'Invisible · lento' },
+    { texto: 'Robarle el arma del cinturón.', tipo: 'riesgo', efecto: 'Arma · mucho riesgo' },
+    { texto: 'Seguirle hasta su escondite y ocuparlo tú.', tipo: 'sigilo', efecto: 'Refugio · conflicto' }
+  ],
+  riesgo: [
+    { texto: 'Ir directo al centro de la arena, a cara de todos.', tipo: 'riesgo', efecto: 'Fama ↑↑ · peligro' },
+    { texto: 'Aceptar el reto público que te lanza el Capitolio.', tipo: 'riesgo', efecto: 'Fama · prueba' },
+    { texto: 'Hacer una exhibición con el arma delante de las cámaras.', tipo: 'riesgo', efecto: 'Patrocinio ↑' },
+    { texto: 'Cruzar el sector prohibido.', tipo: 'riesgo', efecto: 'Atajo · desconocido' },
+    { texto: 'Robar en la cornucopia abierta.', tipo: 'riesgo', efecto: 'Equipo · trampa' },
+    { texto: 'Encender una hoguera enorme.', tipo: 'riesgo', efecto: 'Calor · te ven' },
+    { texto: 'Provocar a los Vigilantes.', tipo: 'riesgo', efecto: 'Fama ↑↑ · castigo' },
+    { texto: 'Beber de la primera agua que encuentres.', tipo: 'riesgo', efecto: 'Sed calmada · enfermedad' },
+    { texto: 'Comer setas sin saber qué son.', tipo: 'riesgo', efecto: 'Hambre · veneno' },
+    { texto: 'Saltar al vacío para alcanzar la otra orilla.', tipo: 'riesgo', efecto: 'Atajo · fractura' },
+    { texto: 'Subir a la estructura más alta.', tipo: 'riesgo', efecto: 'Vista completa · caída' },
+    { texto: 'Fingir estar herido de muerte.', tipo: 'riesgo', efecto: 'Fama · trampa' },
+    { texto: 'Cantar para el público a plena voz.', tipo: 'riesgo', efecto: 'Fama · todos te oyen' },
+    { texto: 'Dejar que un tributo te siga a propósito.', tipo: 'riesgo', efecto: 'Trampa preparada' },
+    { texto: 'Entrar en la zona de las bestias.', tipo: 'riesgo', efecto: 'Botín raro · mutos' },
+    { texto: 'Retar al tributo más fuerte.', tipo: 'riesgo', efecto: 'Duelo · fama' }
+  ],
+  ayudar: [
+    { texto: 'Curarle la herida con lo que lleves.', tipo: 'ayudar', efecto: 'Confianza ↑ · material ↓' },
+    { texto: 'Compartir tu agua.', tipo: 'ayudar', efecto: 'Sed ↑ · alianza' },
+    { texto: 'Cubrirle mientras duerme.', tipo: 'ayudar', efecto: 'Descanso · cansancio' },
+    { texto: 'Enseñarle a hacer fuego.', tipo: 'ayudar', efecto: 'Alianza fuerte' },
+    { texto: 'Mentirle para que se quede tranquilo.', tipo: 'sigilo', efecto: 'Calma falsa' },
+    { texto: 'Decirle la verdad: solo uno puede salir.', tipo: 'riesgo', efecto: 'Sinceridad · tensión' },
+    { texto: 'Abandonarle y seguir tu camino.', tipo: 'huir', efecto: 'Solo · cordura ↓' },
+    { texto: 'Pedirle que te acompañe hasta la siguiente hora.', tipo: 'alianza', efecto: 'Aliado temporal' },
+    { texto: 'Darle tu comida y quedarte sin nada.', tipo: 'ayudar', efecto: 'Fama ↑↑ · hambre' },
+    { texto: 'Avisarle de la trampa que hay cerca.', tipo: 'ayudar', efecto: 'Deuda · fama' },
+    { texto: 'Cargar con él hasta un lugar seguro.', tipo: 'ayudar', efecto: 'Peso · cansancio' },
+    { texto: 'Proponerle un pacto hasta el final.', tipo: 'alianza', efecto: 'Pareja · traición futura' },
+    { texto: 'Aceptar su ayuda aunque no te fíes.', tipo: 'alianza', efecto: 'Ventaja · riesgo' },
+    { texto: 'Preguntarle por su distrito y escuchar.', tipo: 'ayudar', efecto: 'Cordura ↑ · fama' },
+    { texto: 'Defenderle delante de los demás.', tipo: 'atacar', efecto: 'Combate · fama' }
+  ],
+  alianza: [
+    { texto: 'Proponerle repartir el botín a medias.', tipo: 'alianza', efecto: 'Trato · equipo' },
+    { texto: 'Preguntarle su nombre de verdad.', tipo: 'ayudar', efecto: 'Cordura ↑' },
+    { texto: 'Decirle que le cubres la espalda.', tipo: 'alianza', efecto: 'Confianza · fama' },
+    { texto: 'Pactar que el último día se decida en duelo.', tipo: 'alianza', efecto: 'Pareja honesta' },
+    { texto: 'Mentirle sobre cuántos tributos quedan.', tipo: 'sigilo', efecto: 'Ventaja · riesgo' },
+    { texto: 'Robarle mientras se gira.', tipo: 'atacar', efecto: 'Traición · botín' },
+    { texto: 'Presentarle a tu otro aliado.', tipo: 'alianza', efecto: 'Grupo de tres' },
+    { texto: 'Escuchar sus planes y quedarte con el mejor.', tipo: 'sigilo', efecto: 'Idea robada' },
+    { texto: 'Darle la mano delante de las cámaras.', tipo: 'riesgo', efecto: 'Fama ↑↑ · pareja' },
+    { texto: 'Contarle tu miedo más grande.', tipo: 'ayudar', efecto: 'Vínculo · cordura ↑' },
+    { texto: 'Ofrecerle tu arma como prueba de confianza.', tipo: 'riesgo', efecto: 'Confianza · desarmado' },
+    { texto: 'Acordar un reparto de sectores.', tipo: 'alianza', efecto: 'Territorio · orden' },
+    { texto: 'Dejarle claro quién manda aquí.', tipo: 'riesgo', efecto: 'Mando · tensión' },
+    { texto: 'Aceptar sin mirarle a los ojos.', tipo: 'sigilo', efecto: 'Desconfianza' }
+  ]
+};
+
+/* Opciones que solo tienen sentido en ciertas escenas: se filtran por palabra clave */
+const OPCIONES_ESPECIFICAS = [
+  { clave: /agua|lago|río|rio|pantano|inund|sed|orilla/, opciones: [
+    { texto: 'Llenar todos los recipientes que lleves.', tipo: 'sigilo', efecto: 'Agua · peso' },
+    { texto: 'Hervir el agua antes de beber.', tipo: 'ayudar', efecto: 'Agua potable · tiempo' },
+    { texto: 'Buscar el manantial que baja de la roca.', tipo: 'sigilo', efecto: 'Agua limpia' },
+    { texto: 'Beber deprisa y seguir andando.', tipo: 'riesgo', efecto: 'Sed calmada · enfermedad' },
+    { texto: 'Seguir la corriente río abajo.', tipo: 'riesgo', efecto: 'Ruta nueva' }
+  ]},
+  { clave: /comida|frut|carne|provision|hambre|hoguera|fuego/, opciones: [
+    { texto: 'Asar la carne antes de comerla.', tipo: 'ayudar', efecto: 'Comida sana · tiempo' },
+    { texto: 'Guardar la mitad para mañana.', tipo: 'sigilo', efecto: 'Reserva · hambre hoy' },
+    { texto: 'Comerte todo ahora mismo.', tipo: 'riesgo', efecto: 'Hambre saciada · pesadez' },
+    { texto: 'Buscar raíces comestibles alrededor.', tipo: 'sigilo', efecto: 'Comida · lento' }
+  ]},
+  { clave: /herida|sangre|herido|venda|fractura|dolor/, opciones: [
+    { texto: 'Limpiarte la herida con agua y vendar bien.', tipo: 'ayudar', efecto: 'Sangrado parado' },
+    { texto: 'Cauterizar con la punta del cuchillo.', tipo: 'riesgo', efecto: 'Sangrado parado · dolor' },
+    { texto: 'Aguantar y seguir andando.', tipo: 'huir', efecto: 'Sangrado activo' }
+  ]},
+  { clave: /noche|oscur|frío|frio|dormir|descans|hoguera/, opciones: [
+    { texto: 'Dormir por turnos con la espalda contra un árbol.', tipo: 'sigilo', efecto: 'Descanso · cansancio ↓' },
+    { texto: 'Encender una hoguera pequeña y taparla.', tipo: 'riesgo', efecto: 'Calor · te pueden ver' },
+    { texto: 'No dormir y vigilar hasta el amanecer.', tipo: 'sigilo', efecto: 'Seguro · cansancio ↑↑' }
+  ]}
+];
+
+/* Familias de opciones según el tipo y el texto de la escena */
+function familiaDeEscena(escena, tipo) {
+  const t = (escena.texto || '').toLowerCase();
+  const fam = [tipo];
+  if (escena.despues) fam.push(escena.despues);
+  if (/agua|lago|río|rio|pantano|lluvia|inund|sed/.test(t)) fam.push('agua');
+  if (/hambre|comida|frut|carne|provision|frío|frio/.test(t)) fam.push('comida');
+  if (/herida|sangre|herido|dolor|venda|fractura/.test(t)) fam.push('herida');
+  return fam;
+}
+
+/* Mezcla las opciones de la escena con otras de su familia: nunca el mismo trío */
+function opcionesVariadas(escena) {
+  const base = escena.opciones.map((o) => ({ ...o }));
+  const extra = OPCIONES_EXTRA[escena.familia || 'riesgo'] || [];
+  const familia = familiaDeEscena(escena, escena.familia || 'riesgo');
+  const pozo = [];
+  familia.forEach((f) => { if (OPCIONES_EXTRA[f]) pozo.push(...OPCIONES_EXTRA[f]); });
+
+  // Opciones que encajan con lo que cuenta la escena
+  const t = (escena.texto || '').toLowerCase();
+  OPCIONES_ESPECIFICAS.forEach((g) => { if (g.clave.test(t)) pozo.push(...g.opciones); });
+
+  // Los tipos que ya tiene la escena deben seguir presentes para no romper el árbol
+  const tiposBase = [...new Set(base.map((o) => o.tipo))];
+  const elegidas = [...base];
+  const usadosTexto = new Set(base.map((o) => o.texto));
+
+  // Dos huecos fijos de relleno: uno del pozo, otro de cualquier familia
+  const candidatas = barajar(pozo).filter((o) => !usadosTexto.has(o.texto));
+  let añadidas = 0;
+  for (const c of candidatas) {
+    if (añadidas >= 2) break;
+    elegidas.push({ ...c, tipo: c.tipo || elegir(tiposBase) });
+    usadosTexto.add(c.texto);
+    añadidas += 1;
+  }
+  // Si la escena es corta, un tercer refuerzo
+  if (elegidas.length < 5) {
+    const otras = barajar([].concat(...Object.values(OPCIONES_EXTRA)))
+      .filter((o) => !usadosTexto.has(o.texto));
+    for (const o of otras) {
+      if (elegidas.length >= 5) break;
+      elegidas.push({ ...o });
+      usadosTexto.add(o.texto);
+    }
+  }
+  return barajar(elegidas);
 }
 
 /* Escenas extra por arena, elegidas al azar para cada partida */
@@ -1850,6 +2045,83 @@ const ESCENAS_ARBOL = {
   ]
 };
 
+/* ---------- Escenas de relleno: el árbol nunca se queda sin opciones ---------- */
+
+const RELLENO_ESCENAS = {
+  lago: [
+    { texto: 'El bosque cruje detrás de ti. Alguien te sigue y no lo esconde: quiere que lo sepas.', familia: 'huir' },
+    { texto: 'Un claro con un arroyo helado. Beber aquí sería fácil; quedarse, no.', familia: 'riesgo' },
+    { texto: 'Encuentras un campamento abandonado con la hoguera aún caliente. Alguien acaba de irse.', familia: 'sigilo' },
+    { texto: 'Una tributo herida te pide ayuda desde el barro. No parece una trampa, pero lo parece.', familia: 'ayudar' },
+    { texto: 'El cañón suena dos veces seguidas. El número de vivos baja y el tuyo se queda solo en la lista.', familia: 'riesgo' },
+    { texto: 'La hierba alta se mueve en línea recta hacia ti, y no hay viento.', familia: 'atacar' },
+    { texto: 'Una caja de plata cae del cielo con tu nombre grabado. El Capitolio quiere algo a cambio.', familia: 'riesgo' },
+    { texto: 'El sol quema y no queda sombra en un kilómetro. Tus piernas pesan el doble.', familia: 'huir' },
+    { texto: 'Dos tributos discuten a voces a pocos metros. No te han visto todavía.', familia: 'sigilo' },
+    { texto: 'El lago devuelve un cuerpo a la orilla. Lleva una mochila que nadie ha reclamado.', familia: 'riesgo' },
+    { texto: 'La noche cae sin luna y el frío te cala hasta los huesos.', familia: 'sigilo' },
+    { texto: 'Alguien ha dejado marcas en los árboles: señales de un grupo organizado.', familia: 'alianza' },
+    { texto: 'Un muto herido agoniza en el sendero. Podría servirte de comida o de aviso.', familia: 'atacar' },
+    { texto: 'Se oye un río al otro lado de la colina, y también pasos entre los arbustos.', familia: 'riesgo' },
+    { texto: 'El viento cambia y trae olor a humo. Alguien tiene fuego encendido cerca.', familia: 'sigilo' },
+    { texto: 'Encuentras tu propia cara pintada en un tronco. Los Vigilantes se están divirtiendo.', familia: 'riesgo' },
+    { texto: 'Una trampa mal hecha bloquea el único paso entre dos rocas.', familia: 'sigilo' },
+    { texto: 'Un tributo del Distrito 11 te ofrece compartir su refugio esta noche.', familia: 'alianza' },
+    { texto: 'La arena se ha quedado en silencio. Ni grillos, ni viento, ni cañones. Eso nunca es bueno.', familia: 'riesgo' },
+    { texto: 'Llegas a un promontorio desde el que se ve casi toda la arena. También se te ve a ti.', familia: 'riesgo' },
+    { texto: 'Tienes las manos sucias de barro y sangre seca. Necesitas parar un momento.', familia: 'ayudar' },
+    { texto: 'Alguien ha dejado una trampa de red en el sendero, con cebo de comida de verdad.', familia: 'sigilo' },
+    { texto: 'Un grupo de tres tributos pasa cerca hablando de ti. No saben que estás ahí.', familia: 'sigilo' },
+    { texto: 'La arena te devuelve el eco de tu propia respiración. Estás más cansado de lo que crees.', familia: 'ayudar' },
+    { texto: 'Encuentras un arroyo con peces pequeños y un rastro de botas en el barro.', familia: 'riesgo' },
+    { texto: 'Una tributo del Distrito 1 te reta a gritos desde el otro lado del claro.', familia: 'atacar' }
+  ],
+  reloj: [
+    { texto: 'El sector de la niebla se activa a tu espalda. La bruma avanza en línea recta.', familia: 'huir' },
+    { texto: 'En el sector de los monos, algo te mira desde las ramas sin moverse.', familia: 'sigilo' },
+    { texto: 'El sector del agua empieza a llenarse y tú estás en el borde.', familia: 'huir' },
+    { texto: 'Encuentras una palanca clavada en la piedra del sector 7. Parece importante.', familia: 'riesgo' },
+    { texto: 'El reloj marca las doce y todas las campanas suenan a la vez. Los tributos corren.', familia: 'huir' },
+    { texto: 'Una tributo del 5 grita tu nombre desde el sector de las olas. Tiene una mochila y miedo.', familia: 'ayudar' },
+    { texto: 'El sector de los insectos empieza a zumbar. Tienes segundos para salir.', familia: 'huir' },
+    { texto: 'La arena tiembla en el sector 11 y una grieta se abre hacia el centro.', familia: 'riesgo' },
+    { texto: 'Un tributo duerme al descubierto en el borde del sector 3. Nadie le cubre.', familia: 'atacar' },
+    { texto: 'El sector del fuego arde sin llama, como si el aire estuviera caliente solo.', familia: 'riesgo' },
+    { texto: 'Encuentras comida en el sector de la vegetación, y también un rastro fresco.', familia: 'sigilo' },
+    { texto: 'Dos tributos te hacen señas desde el sector seguro. Quieren hablar.', familia: 'alianza' },
+    { texto: 'El giro del reloj te pilla en el sector equivocado. Tienes que decidir en dos segundos.', familia: 'huir' },
+    { texto: 'El sector de la niebla venenosa se abre a tus pies y el aire se vuelve dulce.', familia: 'huir' },
+    { texto: 'Un tributo herido se arrastra hacia ti pidiendo agua.', familia: 'ayudar' },
+    { texto: 'La piedra del centro tiene un hueco con provisiones y una nota: «Para el que aguante».', familia: 'riesgo' },
+    { texto: 'Los mutos del sector 9 han aprendido tu olor. Ya no hace falta que te busquen.', familia: 'atacar' },
+    { texto: 'El sector del bosque se cierra con una pared invisible. Estás dentro.', familia: 'riesgo' },
+    { texto: 'Una tributo te ofrece su alianza a cambio de tu comida. Es la tercera vez que lo pide.', familia: 'alianza' },
+    { texto: 'El reloj se queda quieto un momento. Todo el mundo lo nota, y todo el mundo corre.', familia: 'riesgo' },
+    { texto: 'El sector de los dientes de metal se cierra sobre el sendero que pensabas usar.', familia: 'huir' },
+    { texto: 'Alguien ha apagado la fuente del sector 4. El agua corre hacia otro lado.', familia: 'sigilo' },
+    { texto: 'El sector de la sangre vuelve a activarse y el olor llega antes que el color.', familia: 'huir' },
+    { texto: 'Un tributo del 2 vigila el centro desde lo alto. Te ha visto y no se mueve.', familia: 'atacar' }
+  ]
+};
+
+let rellenoUsados = { lago: [], reloj: [] };
+
+function escenaRelleno() {
+  const arena = estado.arena;
+  const pozo = RELLENO_ESCENAS[arena] || RELLENO_ESCENAS.lago;
+  let libres = pozo.filter((e) => !rellenoUsados[arena].includes(e.texto));
+  if (!libres.length) { rellenoUsados[arena] = []; libres = pozo.slice(); }
+  const base = elegir(libres);
+  rellenoUsados[arena].push(base.texto);
+  return {
+    id: `relleno-${arena}-${rellenoUsados[arena].length}`,
+    requiere: 'siempre',
+    familia: base.familia,
+    texto: base.texto,
+    opciones: (OPCIONES_EXTRA[base.familia] || OPCIONES_EXTRA.riesgo).slice(0, 4)
+  };
+}
+
 /* ---------- Selección de la siguiente escena ---------- */
 
 function nodosDelArbol() {
@@ -1871,6 +2143,10 @@ function siguienteEscena(ultimaOpcion, ultimoBien) {
   const usados = new Set(historialEscenas);
   const nodos = nodosDelArbol();
   const aliados = estado.alianza.length + estado.tributos.filter((t) => t.vivo && !t.yo && t.alianza.includes(estado.yo.id)).length;
+
+  // 0. De vez en cuando, una escena de situación nueva aunque queden nodos del árbol
+  const turnos = (estado.turno || 0);
+  if (turnos > 2 && turnos % 3 === 0 && Math.random() < 0.45) return escenaRelleno();
 
   // 1. Consecuencia directa de la última decisión (mismo tipo y mismo resultado)
   const consecuencia = nodos.filter((n) => n.despues === ultimaOpcion && n.exito === ultimoBien && !usados.has(n.id));
@@ -1899,11 +2175,8 @@ function siguienteEscena(ultimaOpcion, ultimoBien) {
   const libres = base.concat(escenasPartida[estado.arena] || []).filter((e) => !usados.has(e.id));
   if (libres.length) return elegir(libres);
 
-  // 6. Se ha agotado todo: se reabre el árbol menos la última escena
-  const ultima = historialEscenas[historialEscenas.length - 1];
-  historialEscenas.length = 0;
-  const reinicio = nodos.filter((n) => n.id !== ultima);
-  return elegir(reinicio);
+  // 6. Se ha agotado todo: escena de relleno nueva, con opciones de su familia
+  return escenaRelleno();
 }
 
 function ofrecerOpciones(escena) {
@@ -1916,7 +2189,7 @@ function ofrecerOpciones(escena) {
   if (estado.ultimoEco) narrar(`<span class="eco-antes">${escapar(estado.ultimoEco)}</span>`, 'eco');
   narrar(escena.texto, 'escena-texto');
   cajaOpciones.innerHTML = '';
-  const letras = ['A', 'B', 'C'];
+  const letras = 'ABCDEFGH'.split('');
 
   const combate = escena.opciones.some((o) => o.tipo === 'atacar');
   estado.enCombate = combate;
@@ -1930,6 +2203,20 @@ function ofrecerOpciones(escena) {
     btn.addEventListener('click', () => elegirOpcion(op));
     cajaOpciones.appendChild(btn);
   });
+
+  // Cambiar de idea: pide otras opciones para la misma escena
+  if (escena.id !== 'cornucopia' && !escena.apertura) {
+    const otra = document.createElement('button');
+    otra.type = 'button';
+    otra.className = 'opcion opcion--refrescar';
+    otra.innerHTML = `<span class="opcion__letra">↻</span>
+      <span>Pensar otra cosa.<span class="opcion__efecto">Otras opciones para esta misma escena</span></span>`;
+    otra.addEventListener('click', () => {
+      if (estado.fin || estado.esperandoEleccion) return;
+      ofrecerOpciones(escena);
+    });
+    cajaOpciones.appendChild(otra);
+  }
 
   // Arma disponible: solo en escenas de combate y si llevas una
   if (combate && !estado.bloqueoCombate) {
@@ -2095,8 +2382,12 @@ function jugarMinijuego(clave) {
       }, 900));
     };
 
+    // El temporizador arranca en el siguiente fotograma, ya con el lienzo montado
     def.montar(lienzo, terminar);
-    mj.temporizadores.push(mjTiempo(def.segundos, () => terminar(false, def.fallo)));
+    requestAnimationFrame(() => {
+      if (cerrado) return;
+      mj.temporizadores.push(mjTiempo(def.segundos, () => terminar(false, def.fallo)));
+    });
   });
 }
 
@@ -2478,12 +2769,20 @@ function mjSaqueo(lienzo, terminar) {
   const limite = 2 + (estado.stats.agilidad >= 7 ? 1 : 0);
   let cogidos = 0;
   let puntos = 0;
+  const marcador = document.createElement('div');
+  marcador.className = 'mj-saqueo__marcador';
+  marcador.textContent = `0 / ${limite}`;
+  lienzo.appendChild(marcador);
+
   caja.addEventListener('click', (ev) => {
     const el = ev.target.closest('.mj-objeto');
     if (!el || el.classList.contains('cogido')) return;
     el.classList.add('cogido');
     cogidos += 1;
-    if (utiles.has(el.dataset.o)) puntos += 1;
+    const util = utiles.has(el.dataset.o);
+    if (util) puntos += 1;
+    el.classList.add(util ? 'util' : 'basura');
+    marcador.textContent = `${cogidos} / ${limite}`;
     if (cogidos >= limite) {
       terminar(puntos > 0, puntos > 0 ? `Te llevas ${puntos} cosa${puntos > 1 ? 's' : ''} que sirve${puntos > 1 ? 'n' : ''}.` : 'Solo basura.');
     }

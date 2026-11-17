@@ -2119,3 +2119,36 @@ li.vacio { color: #6a645c; font-style: italic; border-left-color: transparent; b
   background: rgba(216, 178, 90, .25);
   border: 1px solid var(--oro);
 }
+
+
+/* Opción de refresco: otras opciones para la misma escena */
+.opcion--refrescar {
+  border-style: dashed;
+  opacity: .8;
+}
+
+.opcion--refrescar:hover { opacity: 1; }
+
+.opcion--refrescar .opcion__letra {
+  color: var(--texto-tenue);
+  border-color: rgba(255, 255, 255, .2);
+}
+
+
+/* Saqueo: marcador de objetos cogidos */
+.mj-saqueo__marcador {
+  position: absolute;
+  right: 10px;
+  top: 8px;
+  z-index: 4;
+  font-family: var(--fuente-titulo);
+  font-size: 13px;
+  color: var(--oro);
+  background: rgba(0, 0, 0, .45);
+  border: 1px solid rgba(216, 178, 90, .35);
+  border-radius: 100px;
+  padding: 2px 10px;
+}
+
+.mj-objeto.util { background: rgba(127, 209, 138, .22); border-color: #7fd18a; }
+.mj-objeto.basura { opacity: .4; }
