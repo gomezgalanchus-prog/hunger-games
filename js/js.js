@@ -1024,6 +1024,7 @@ function prepararArena() {
   estado.minijuegos = 0;
   estado.minijuegosGanados = 0;
   estado.minijuegoFinalHecho = false;
+  estado.dueloHecho = false;
   estado.clima = 'despejado';
   estado.climaTurnos = 0;
   estado.cornucopiaTurno = 3 + Math.floor(Math.random() * 3);
@@ -2106,7 +2107,13 @@ const MINIJUEGO_DECISIVO = {
   botin: 'saqueo',
   orientacion: 'memoria',
   curacion: 'aguja',
-  punteria: 'diana'
+  punteria: 'diana',
+  esquivar: 'esquivar',
+  tension: 'precision',
+  persecucion: 'carrera',
+  duelo: 'pulseada',
+  ingenio: 'lectura',
+  temple: 'equilibrio'
 };
 
 async function momentoDecisivo(tipo, titulo) {
@@ -2432,7 +2439,345 @@ function mjSaqueo(lienzo, terminar) {
   });
 }
 
+/* --- 7. Esquivar la flecha: mueve el tributo con las flechas del teclado --- */
+function mjEsquivar(lienzo, terminar) {
+  const ancho = lienzo.clientWidth || 520;
+  const alto = lienzo.clientHeight || 210;
+  const jugador = document.createElement('div');
+  jugador.className = 'mj-jugador';
+  const objetivo = document.createElement('div');
+  objetivo.className = 'mj-objetivo';
+  const barra = document.createElement('div');
+  barra.className = 'mj-barra-vida';
+  const relleno = document.createElement('div');
+  barra.appendChild(relleno);
+  lienzo.append(objetivo, jugador, barra);
+
+  let x = ancho / 2 - 14;
+  const y = alto - 44;
+  const anchoJ = 28;
+  jugador.style.top = `${y}px`;
+  jugador.style.left = `${x}px`;
+
+  let d = { x: 40 + Math.random() * (ancho - 120), y: -30 };
+  let dy = 2.4 + Math.random() * 1.2;
+  objetivo.style.top = `${d.y}px`;
+  objetivo.style.left = `${d.x}px`;
+
+  let vida = 3;
+  let ultimo = performance.now();
+  let teclas = {};
+
+  const pintar = () => {
+    jugador.style.left = `${x}px`;
+    relleno.style.width = `${(vida / 3) * 100}%`;
+  };
+  const bajar = (e) => { teclas[e.key] = true; if (['ArrowLeft', 'ArrowRight'].includes(e.key)) e.preventDefault(); };
+  const subir = (e) => { teclas[e.key] = false; };
+  window.addEventListener('keydown', bajar);
+  window.addEventListener('keyup', subir);
+
+  const animar = (t) => {
+    const dt = Math.min(40, t - ultimo) / 16;
+    ultimo = t;
+    const vel = 5 * dt;
+    if (teclas.ArrowLeft || teclas.a || teclas.A) x -= vel;
+    if (teclas.ArrowRight || teclas.d || teclas.D) x += vel;
+    x = clamp(x, 4, ancho - anchoJ - 4);
+
+    d.y += dy * dt;
+    if (d.y > alto) {
+      d.y = -30;
+      d.x = Math.random() * (ancho - 40);
+      dy = 2.4 + Math.random() * 1.4;
+    }
+    objetivo.style.top = `${d.y}px`;
+    objetivo.style.left = `${d.x}px`;
+
+    if (d.y + 16 > y && d.y - 16 < y + 40 && d.x + 16 > x && d.x < x + anchoJ) {
+      vida -= 1;
+      d.y = -30;
+      d.x = Math.random() * (ancho - 40);
+      pintar();
+      if (vida <= 0) { terminar(false, 'Te alcanzan tres veces: el golpe entra.'); return; }
+    }
+    pintar();
+    mj.raf = requestAnimationFrame(animar);
+  };
+  mj.raf = requestAnimationFrame(animar);
+  pintar();
+  mj.limpiar = () => {
+    window.removeEventListener('keydown', bajar);
+    window.removeEventListener('keyup', subir);
+  };
+}
+
+/* --- 8. Libertad condicional: detén la barra en la zona verde --- */
+function mjPrecision(lienzo, terminar) {
+  const barra = document.createElement('div');
+  barra.className = 'mj-pulso';
+  barra.style.height = '60px';
+  barra.style.top = '50%';
+  const zona = document.createElement('div');
+  zona.className = 'mj-pulso__zona';
+  const anchoZona = 14 + estado.stats.agilidad * 1.2;
+  const inicio = 30 + Math.random() * (60 - anchoZona);
+  zona.style.left = `${inicio}%`;
+  zona.style.width = `${anchoZona}%`;
+  zona.style.background = 'linear-gradient(90deg, rgba(127,209,138,.35), rgba(127,209,138,.8))';
+  const aguja = document.createElement('div');
+  aguja.className = 'mj-pulso__aguja';
+  barra.append(zona, aguja);
+  lienzo.appendChild(barra);
+
+  let pos = 0, dir = 1, ultimo = performance.now();
+  const animar = (t) => {
+    const dt = t - ultimo;
+    ultimo = t;
+    pos += dir * 0.09 * dt;
+    if (pos >= 100) { pos = 100; dir = -1; }
+    if (pos <= 0) { pos = 0; dir = 1; }
+    aguja.style.left = `${pos}%`;
+    mj.raf = requestAnimationFrame(animar);
+  };
+  mj.raf = requestAnimationFrame(animar);
+
+  const cortar = () => {
+    const dentro = pos >= inicio && pos <= inicio + anchoZona;
+    terminar(dentro, dentro ? '¡Cortas en el momento justo!' : 'Cortas tarde: la cuerda te arrastra.');
+  };
+  lienzo.addEventListener('pointerdown', cortar, { once: true });
+  mj.limpiar = () => lienzo.removeEventListener('pointerdown', cortar);
+}
+
+/* --- 9. Carrera de fondo: pulsa alternando dos teclas --- */
+function mjCarrera(lienzo, terminar) {
+  const ancho = lienzo.clientWidth || 520;
+  const meta = document.createElement('div');
+  meta.className = 'mj-meta';
+  meta.style.left = `${ancho - 46}px`;
+  const yo = document.createElement('div');
+  yo.className = 'mj-corredor';
+  const otro = document.createElement('div');
+  otro.className = 'mj-corredor mj-corredor--otro';
+  const pista = document.createElement('div');
+  pista.className = 'mj-pista';
+  lienzo.append(pista, meta, yo, otro);
+
+  let x = 10, rival = 10;
+  const avance = 2 + estado.stats.resistencia * 0.35;
+  let ultimo = performance.now();
+  let ultimaTecla = '';
+
+  const tecla = (e) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    if (e.key === ultimaTecla) return; // hay que alternar
+    ultimaTecla = e.key;
+    x += avance;
+    yo.style.left = `${Math.min(x, ancho - 40)}px`;
+    if (x >= ancho - 40) terminar(true, 'Llegas primero a la grieta.');
+  };
+  window.addEventListener('keydown', tecla);
+
+  const animar = (t) => {
+    const dt = Math.min(40, t - ultimo);
+    ultimo = t;
+    rival += (0.055 + Math.random() * 0.03) * dt;
+    otro.style.left = `${Math.min(rival, ancho - 40)}px`;
+    if (rival >= ancho - 40) { terminar(false, 'Te alcanza por detrás.'); return; }
+    mj.raf = requestAnimationFrame(animar);
+  };
+  mj.raf = requestAnimationFrame(animar);
+
+  mj.limpiar = () => window.removeEventListener('keydown', tecla);
+}
+
+/* --- 10. Apretón de manos / pulseada: pulsa rápido para vencer --- */
+function mjPulseada(lienzo, terminar) {
+  const caja = document.createElement('div');
+  caja.className = 'mj-pulseada';
+  const medidor = document.createElement('div');
+  medidor.className = 'mj-pulseada__medidor';
+  const relleno = document.createElement('div');
+  relleno.className = 'mj-pulseada__relleno';
+  medidor.appendChild(relleno);
+  const centro = document.createElement('div');
+  centro.className = 'mj-pulseada__centro';
+  caja.append(medidor, centro);
+  lienzo.appendChild(caja);
+
+  let fuerza = 50;
+  const fuerzaJugador = 4 + estado.stats.fuerza;
+  const fuerzaRival = 5 + Math.round(Math.random() * 3);
+  let ultimo = performance.now();
+
+  const apretar = () => { fuerza += fuerzaJugador; relleno.style.width = `${clamp(fuerza, 0, 100)}%`; };
+  lienzo.addEventListener('pointerdown', apretar);
+
+  const animar = (t) => {
+    const dt = Math.min(60, t - ultimo) / 16;
+    ultimo = t;
+    fuerza -= fuerzaRival * dt * 0.9;
+    fuerza = clamp(fuerza, 0, 100);
+    relleno.style.width = `${fuerza}%`;
+    if (fuerza >= 100) { terminar(true, 'Le ganas la mano.'); return; }
+    if (fuerza <= 0) { terminar(false, 'Te dobla el brazo.'); return; }
+    mj.raf = requestAnimationFrame(animar);
+  };
+  mj.raf = requestAnimationFrame(animar);
+
+  mj.limpiar = () => lienzo.removeEventListener('pointerdown', apretar);
+}
+
+/* --- 11. Lectura del Capitolio: caza la palabra clave en un texto que se mueve --- */
+function mjLectura(lienzo, terminar) {
+  const palabras = ['FIEBRE', 'INSPECTOR', 'DECRETO', 'TREN', 'MOVIMIENTO', 'SILENCIO', 'PANEM', 'DISTRITO'];
+  const caja = document.createElement('div');
+  caja.className = 'mj-lectura';
+  const objetivo = document.createElement('div');
+  objetivo.className = 'mj-lectura__objetivo';
+  const clave = elegir(palabras);
+  objetivo.textContent = `Busca: ${clave}`;
+  const texto = document.createElement('div');
+  texto.className = 'mj-lectura__texto';
+  caja.append(objetivo, texto);
+  lienzo.appendChild(caja);
+
+  const trozos = [];
+  for (let i = 0; i < 40; i++) {
+    trozos.push(elegir(palabras));
+    if (Math.random() < 0.2) trozos.push(clave);
+  }
+  if (!trozos.includes(clave)) trozos[5] = clave;
+
+  trozos.forEach((w) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = `mj-lectura__palabra${w === clave ? ' clave' : ''}`;
+    b.textContent = w;
+    b.addEventListener('click', () => {
+      if (w === clave) terminar(true, 'Encuentras la palabra a tiempo.');
+      else terminar(false, 'Te confundes de palabra y pierdes el momento.');
+    });
+    texto.appendChild(b);
+  });
+
+  // Las palabras se desplazan y hay que encontrarla antes de que salga de la vista
+  let desplazado = 0;
+  let ultimo = performance.now();
+  const animar = (t) => {
+    const dt = Math.min(50, t - ultimo);
+    ultimo = t;
+    desplazado += dt * 0.04;
+    texto.style.transform = `translateY(${-desplazado}px)`;
+    mj.raf = requestAnimationFrame(animar);
+  };
+  mj.raf = requestAnimationFrame(animar);
+}
+
+/* --- 12. Cuerda floja: mantén pulsado para subir, suelta para bajar --- */
+function mjEquilibrio(lienzo, terminar) {
+  const ancho = lienzo.clientWidth || 520;
+  const alto = lienzo.clientHeight || 210;
+  const barra = document.createElement('div');
+  barra.className = 'mj-equilibrio';
+  const zona = document.createElement('div');
+  zona.className = 'mj-equilibrio__zona';
+  const zonaAlto = 26 + estado.stats.agilidad * 2;
+  zona.style.top = `${50 - zonaAlto / 2}%`;
+  zona.style.height = `${zonaAlto}%`;
+  const marcador = document.createElement('div');
+  marcador.className = 'mj-equilibrio__marcador';
+  barra.append(zona, marcador);
+  lienzo.appendChild(barra);
+
+  let y = 50, vel = 0, pulsado = false, ultimo = performance.now();
+  const dentro = () => (Math.abs(y - 50) <= zonaAlto / 2);
+  let fuera = 0;
+
+  const bajar = () => { pulsado = true; };
+  const soltar = () => { pulsado = false; };
+  lienzo.addEventListener('pointerdown', bajar);
+  window.addEventListener('pointerup', soltar);
+
+  const animar = (t) => {
+    const dt = Math.min(40, t - ultimo) / 16;
+    ultimo = t;
+    vel += (pulsado ? -0.55 : 0.55) * dt;
+    vel *= 0.94;
+    y = clamp(y + vel, 4, 96);
+    marcador.style.top = `${y}%`;
+    if (!dentro()) {
+      fuera += dt;
+      if (fuera > 55) { terminar(false, 'Pierdes el equilibrio y caes.'); return; }
+    } else {
+      fuera = Math.max(0, fuera - dt);
+    }
+    mj.raf = requestAnimationFrame(animar);
+  };
+  mj.raf = requestAnimationFrame(animar);
+
+  // Sobrevivir 4 segundos manteniéndote en la zona cuenta como acierto
+  mj.temporizadores.push(setTimeout(() => {
+    if (dentro()) terminar(true, 'Cruzas la cuerda sin caer.');
+  }, 3800));
+
+  mj.limpiar = () => {
+    lienzo.removeEventListener('pointerdown', bajar);
+    window.removeEventListener('pointerup', soltar);
+  };
+}
+
 const MINIJUEGOS = {
+  esquivar: {
+    etiqueta: 'MINIJUEGO · SUPERVIVENCIA',
+    titulo: 'Esquivar la flecha',
+    instrucciones: 'Mueve al tributo con las flechas ← → (o A y D) para esquivar lo que cae del cielo. Te pueden dar tres veces.',
+    segundos: 12,
+    fallo: 'Te alcanzan demasiadas veces.',
+    montar: mjEsquivar
+  },
+  precision: {
+    etiqueta: 'MINIJUEGO · TENSIÓN',
+    titulo: 'Cortar la cuerda',
+    instrucciones: 'Pulsa cuando la aguja esté dentro de la zona verde: ni antes ni después.',
+    segundos: 4,
+    fallo: 'La cuerda se rompe en el peor momento.',
+    montar: mjPrecision
+  },
+  carrera: {
+    etiqueta: 'MINIJUEGO · PERSECUCIÓN',
+    titulo: 'Carrera de fondo',
+    instrucciones: 'Alterna ← y → (o A y D) rápidamente para correr. Si repites la misma tecla no avanzas.',
+    segundos: 12,
+    fallo: 'Te alcanzan por detrás.',
+    montar: mjCarrera
+  },
+  pulseada: {
+    etiqueta: 'MINIJUEGO · DUELO',
+    titulo: 'Pulseada',
+    instrucciones: 'Pulsa sin parar para empujar la barra hasta el final antes de que él te doble el brazo.',
+    segundos: 8,
+    fallo: 'Te dobla el brazo.',
+    montar: mjPulseada
+  },
+  lectura: {
+    etiqueta: 'MINIJUEGO · INGENIO',
+    titulo: 'Lectura del Capitolio',
+    instrucciones: 'Encuentra la palabra clave entre las demás y púlsala antes de que desaparezca.',
+    segundos: 8,
+    fallo: 'Se acaba el tiempo antes de encontrarla.',
+    montar: mjLectura
+  },
+  equilibrio: {
+    etiqueta: 'MINIJUEGO · TEMPLE',
+    titulo: 'Cuerda floja',
+    instrucciones: 'Mantén pulsado para subir y suelta para bajar. Mantén la marca dentro de la zona dorada.',
+    segundos: 9,
+    fallo: 'Pierdes el equilibrio.',
+    montar: mjEquilibrio
+  },
   fuerza: {
     etiqueta: 'MINIJUEGO · COMBATE',
     titulo: 'Pulso de fuerza',
@@ -2551,16 +2896,17 @@ async function cerrarTurnoLibre() {
     return;
   }
 
-  if (estado.turno >= estado.proximoAcontecimiento) {
-    estado.proximoAcontecimiento += 1;
-    await dormir(380);
-    lanzarAcontecimiento();
-  }
+  const tocaAcontecimiento = estado.turno >= estado.proximoAcontecimiento && !estado.fin;
+  if (tocaAcontecimiento) estado.proximoAcontecimiento += 1;
 
   resolverTrampas();
 
   if (estado.cornucopiaAbierta || estado.fiestaAbierta) return; // evento pendiente de elegir
   await ofrecerEscenaSiguiente();
+  if (tocaAcontecimiento && !estado.fin && !estado.cornucopiaAbierta && !estado.fiestaAbierta) {
+    estado.acontecimientoPendiente = true;
+    dormir(420).then(() => lanzarAcontecimiento());
+  }
 }
 
 /* Elige y muestra la siguiente escena del árbol (lo usan acciones y decisiones) */
@@ -2967,6 +3313,13 @@ function fiestaCapitolio() {
       texto: 'Dar un discurso al cielo agradeciendo a tus patrocinadores.',
       efecto: 'Patrocinadores ↑↑ · cordura ↓',
       aplicar: async () => {
+        const inspirado = await momentoDecisivo('ingenio', 'El discurso de tu vida');
+        if (estado.fin) return '';
+        if (!inspirado) {
+          ajustarPatrocinio(-6);
+          estado.cordura = clamp(estado.cordura - 8, 0, 100);
+          return '<span class="linea-muerte">Te trabas en mitad de la frase y el Capitolio cambia de cámara. Silencio incómodo.</span>';
+        }
         ajustarPatrocinio(22);
         estado.cordura = clamp(estado.cordura - 8, 0, 100);
         const envio = [elegir(Object.keys(CURATIVOS)), armaAleatoria()];
@@ -3116,6 +3469,22 @@ async function elegirOpcion(op) {
   gastarResistencia(op.tipo, saleBien);
 
   // Decisión decisiva: si con tu acción te juegas el último puesto, se juega el minijuego
+  // Duelo de fuerza contra el tributo más fuerte si te la juegas atacándole
+  const rivalFuerte = estado.tributos.filter((t) => t.vivo && !t.yo).sort((a, b) => b.fuerza - a.fuerza)[0];
+  if (op.tipo === 'atacar' && rivalFuerte && rivalFuerte.fuerza >= 9 && !estado.dueloHecho && vivosRestantes() > 2) {
+    estado.dueloHecho = true;
+    const ganado = await momentoDecisivo('duelo', 'Pulseada con el más fuerte');
+    if (estado.fin) { estado.esperandoEleccion = false; return; }
+    if (ganado) {
+      matarTributo(rivalFuerte, 'tras una pulseada que nadie esperaba');
+      narrar(`<span class="linea-bien">Le agarras la muñeca y no la sueltas. <em>${escapar(rivalFuerte.nombre)}</em> cae, y la arena entera lo ha visto.</span>`);
+      ajustarPatrocinio(8);
+    } else {
+      const h = nuevaHerida('grave');
+      narrar(`<span class="linea-muerte">Te dobla el brazo y te tira al suelo: <em>${escapar(h.nombre)}</em>.</span>`);
+    }
+  }
+
   if (op.tipo === 'atacar' && vivosRestantes() === 2 && !estado.minijuegoFinalHecho) {
     estado.minijuegoFinalHecho = true;
     const ganado = await momentoDecisivo('combate', 'El último combate');
@@ -3141,12 +3510,10 @@ async function elegirOpcion(op) {
     return;
   }
 
-  // Acontecimiento de la arena (cada 2 horas)
-  if (estado.turno >= estado.proximoAcontecimiento && !estado.fin) {
-    estado.proximoAcontecimiento += 1;
-    await dormir(420);
-    lanzarAcontecimiento();
-  }
+  // Acontecimiento de la arena (cada 2 horas). Primero se ofrece la siguiente escena
+  // y solo después llega el acontecimiento, para que nunca se quede la pantalla vacía.
+  const tocaAcontecimiento = estado.turno >= estado.proximoAcontecimiento && !estado.fin;
+  if (tocaAcontecimiento) estado.proximoAcontecimiento += 1;
 
   cambiarClima();
   gastarHambreSed(estado.cansancio > 70 ? 2 : 1);
@@ -3192,6 +3559,12 @@ async function elegirOpcion(op) {
 
   await dormir(360);
   await ofrecerEscenaSiguiente();
+
+  // Después de la escena, el acontecimiento de la arena (con su minijuego).
+  // No se espera: si no, la pantalla se queda sin poder elegir mientras corre.
+  if (tocaAcontecimiento && !estado.fin && !estado.cornucopiaAbierta && !estado.fiestaAbierta) {
+    dormir(420).then(() => lanzarAcontecimiento());
+  }
 }
 
 /* Cansancio y cordura según lo que hagas */
@@ -3513,10 +3886,14 @@ function ajustarPatrocinio(delta) {
 
 /* ---------- Acontecimientos de la arena ---------- */
 
-function lanzarAcontecimiento() {
+async function lanzarAcontecimiento() {
+  if (estado.fin) return;
+  estado.acontecimientoPendiente = false;
   const arena = ARENAS[estado.arena];
   const ids = arena.eventos;
-  const idEvento = ids[(estado.sector + estado.turno) % ids.length];
+  // Nunca el mismo dos veces seguidas: se elige entre los que no acaban de pasar
+  const candidatos = ids.filter((x) => x !== estado.ultimoEvento);
+  const idEvento = elegir(candidatos.length ? candidatos : ids);
   let ac = ACONTECIMIENTOS.find((a) => a.id === idEvento) || ACONTECIMIENTOS[0];
   if (estado.ultimoEvento && ac.id === estado.ultimoEvento) {
     const otros = ACONTECIMIENTOS.filter((a) => a.id !== estado.ultimoEvento);
@@ -3536,13 +3913,26 @@ function lanzarAcontecimiento() {
   actualizarRelojMapa();
   actualizarHUD();
   const giro = estado.arena === 'reloj' ? ` El reloj gira al sector ${estado.sector}.` : '';
-  narrar(`<em>${horaLegible(estado.hora)}.</em> ${ac.texto}${giro}`, 'linea-muerte');
+  // El aviso ya está en el panel del acontecimiento; aquí solo se narra lo que te pasa
+  $('#ac-texto').textContent = ac.texto + giro;
 
   const daño = ({ niebla: 16, avispas: 12, bestias: 18, terremoto: 15, inundacion: 14, tormenta: 11, sangre: 6 }[ac.id] || 10)
     * arena.multiplicador;
-  const esquiva = clamp(0.4 + (estado.stats.agilidad + estado.stats.supervivencia) * 0.035, 0.2, 0.9);
+  let esquiva = clamp(0.4 + (estado.stats.agilidad + estado.stats.supervivencia) * 0.035, 0.2, 0.9);
 
-  if (Math.random() < esquiva) {
+  // Minijuego del acontecimiento: el resultado manda sobre la suerte
+  const mjEvento = {
+    niebla: 'esquivar', avispas: 'esquivar', bestias: 'esquivar',
+    terremoto: 'equilibrio', inundacion: 'equilibrio',
+    tormenta: 'precision', sangre: 'carrera'
+  }[ac.id];
+  let resultadoMinijuego = null;
+  if (mjEvento && !estado.fin) {
+    resultadoMinijuego = await jugarMinijuego(mjEvento);
+    if (estado.fin) return;
+  }
+
+  if (resultadoMinijuego === true || (resultadoMinijuego === null && Math.random() < esquiva)) {
     const conCuerda = gastarObjetoDe('huida');
     const frase = conCuerda
       ? 'Reaccionas a tiempo y encuentras refugio. ' + conCuerda

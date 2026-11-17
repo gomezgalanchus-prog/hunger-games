@@ -1760,3 +1760,179 @@ li.vacio { color: #6a645c; font-style: italic; border-left-color: transparent; b
 /* Agua no potable en el inventario */
 .objeto--agua-sucia { color: #e2a05f; }
 .objeto--agua-sucia::after { content: ' ☠'; }
+
+
+/* --- Esquivar la flecha --- */
+.mj-jugador {
+  position: absolute;
+  width: 28px;
+  height: 40px;
+  border-radius: 8px 8px 4px 4px;
+  background: linear-gradient(180deg, var(--oro), #8a6f2c);
+  box-shadow: 0 0 14px rgba(216, 178, 90, .6);
+}
+
+.mj-objetivo {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #e2705f;
+  box-shadow: 0 0 12px rgba(226, 112, 95, .8);
+}
+
+.mj-barra-vida {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 10px;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, .1);
+  overflow: hidden;
+}
+
+.mj-barra-vida div {
+  height: 100%;
+  width: 100%;
+  background: #7fd18a;
+  transition: width .2s;
+}
+
+/* --- Carrera de fondo --- */
+.mj-meta {
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  width: 3px;
+  background: repeating-linear-gradient(180deg, #fff 0 6px, transparent 6px 12px);
+  opacity: .7;
+}
+
+.mj-corredor {
+  position: absolute;
+  bottom: 58px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--oro);
+  box-shadow: 0 0 12px rgba(216, 178, 90, .6);
+  left: 10px;
+}
+
+.mj-corredor--otro {
+  bottom: 22px;
+  background: #e2705f;
+  box-shadow: 0 0 12px rgba(226, 112, 95, .6);
+}
+
+.mj-pista {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 12px;
+  height: 1px;
+  background: rgba(255, 255, 255, .16);
+}
+
+/* --- Pulseada --- */
+.mj-pulseada {
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.mj-pulseada__medidor {
+  height: 26px;
+  border-radius: 13px;
+  background: rgba(255, 255, 255, .06);
+  border: 1px solid rgba(255, 255, 255, .12);
+  overflow: hidden;
+}
+
+.mj-pulseada__relleno {
+  height: 100%;
+  width: 50%;
+  background: linear-gradient(90deg, #7a5f24, var(--oro));
+  transition: width .06s linear;
+}
+
+.mj-pulseada__centro {
+  position: absolute;
+  left: 50%;
+  top: -8px;
+  bottom: -8px;
+  width: 2px;
+  margin-left: -1px;
+  background: rgba(255, 255, 255, .5);
+}
+
+/* --- Lectura del Capitolio --- */
+.mj-lectura { position: absolute; inset: 0; display: flex; flex-direction: column; }
+
+.mj-lectura__objetivo {
+  padding: 8px 12px;
+  font-size: 12px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--oro);
+  border-bottom: 1px solid rgba(255, 255, 255, .08);
+}
+
+.mj-lectura__texto {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 6px;
+  padding: 10px 12px;
+  overflow: hidden;
+}
+
+.mj-lectura__palabra {
+  font-family: var(--fuente-texto);
+  font-size: 12px;
+  padding: 4px 8px;
+  color: var(--texto-tenue);
+  background: rgba(255, 255, 255, .05);
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 100px;
+  cursor: pointer;
+}
+
+.mj-lectura__palabra:hover { color: var(--texto); border-color: var(--borde-oro); }
+
+/* --- Cuerda floja --- */
+.mj-equilibrio {
+  position: absolute;
+  left: 50%;
+  top: 14px;
+  bottom: 14px;
+  width: 26px;
+  margin-left: -13px;
+  border-radius: 13px;
+  background: rgba(255, 255, 255, .06);
+  border: 1px solid rgba(255, 255, 255, .12);
+}
+
+.mj-equilibrio__zona {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: rgba(127, 209, 138, .3);
+  border-top: 1px solid rgba(127, 209, 138, .8);
+  border-bottom: 1px solid rgba(127, 209, 138, .8);
+}
+
+.mj-equilibrio__marcador {
+  position: absolute;
+  left: -8px;
+  right: -8px;
+  height: 4px;
+  margin-top: -2px;
+  border-radius: 2px;
+  background: #fff;
+  box-shadow: 0 0 12px rgba(255, 255, 255, .9);
+}
