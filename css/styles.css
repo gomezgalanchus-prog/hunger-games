@@ -2152,3 +2152,159 @@ li.vacio { color: #6a645c; font-style: italic; border-left-color: transparent; b
 
 .mj-objeto.util { background: rgba(127, 209, 138, .22); border-color: #7fd18a; }
 .mj-objeto.basura { opacity: .4; }
+
+
+/* ====================== FICHA DE ESTADÍSTICAS ====================== */
+.ficha-stats { margin-bottom: 14px; }
+
+.ficha-stats h4 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--texto-tenue);
+}
+
+.ficha-stat {
+  display: grid;
+  grid-template-columns: 78px 1fr 18px;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 5px;
+  font-size: 11px;
+}
+
+.ficha-stat__nombre {
+  text-transform: capitalize;
+  color: var(--texto-tenue);
+  letter-spacing: .5px;
+}
+
+.ficha-stat__barra {
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, .08);
+  overflow: hidden;
+}
+
+.ficha-stat__barra i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #6b5a2c, var(--oro));
+  border-radius: 3px;
+}
+
+.ficha-stat.alta .ficha-stat__barra i { background: linear-gradient(90deg, #4f8a5c, #7fd18a); }
+.ficha-stat.alta .ficha-stat__valor { color: #7fd18a; }
+.ficha-stat.baja .ficha-stat__barra i { background: linear-gradient(90deg, #7a3a30, #e2705f); }
+.ficha-stat.baja .ficha-stat__valor { color: #e2705f; }
+
+.ficha-stat__valor {
+  font-family: var(--fuente-titulo);
+  font-size: 12px;
+  color: var(--oro);
+  text-align: right;
+}
+
+.ficha-stat__efecto {
+  grid-column: 1 / -1;
+  margin: -2px 0 4px 0;
+  font-size: 10px;
+  font-style: italic;
+  color: rgba(255, 255, 255, .38);
+}
+
+/* La estadística que se juega en cada opción */
+.opcion__stat {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 100px;
+  font-size: 10px;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  color: var(--texto-tenue);
+  background: rgba(255, 255, 255, .07);
+}
+
+.opcion__stat.stat--alta { color: #7fd18a; background: rgba(127, 209, 138, .15); }
+.opcion__stat.stat--baja { color: #e2705f; background: rgba(226, 112, 95, .15); }
+
+/* El botón de pensar otra cosa, cuando no hay cordura suficiente */
+.opcion--refrescar:disabled {
+  opacity: .35;
+  cursor: not-allowed;
+  border-style: solid;
+}
+
+
+/* Saqueo: cuando ya has cogido los 3 objetos, el resto queda bloqueado */
+.mj-objeto.bloqueado {
+  opacity: .25;
+  cursor: not-allowed;
+  filter: grayscale(1);
+}
+
+
+/* ====================== CAZA Y VENDAJE ====================== */
+.mj-presa {
+  position: absolute;
+  font-size: 30px;
+  cursor: crosshair;
+  transition: opacity .2s, transform .2s;
+  filter: drop-shadow(0 4px 6px rgba(0, 0, 0, .6));
+  user-select: none;
+}
+
+.mj-presa.cazada {
+  opacity: 0;
+  transform: scale(.5) rotate(-25deg);
+}
+
+.mj-herida {
+  position: absolute;
+  width: 92px;
+  height: 92px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 34px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(190, 60, 50, .35), rgba(190, 60, 50, .08) 70%);
+  border: 2px dashed rgba(226, 112, 95, .7);
+  pointer-events: none;
+}
+
+.mj-venda {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #efe7d2;
+  box-shadow: 0 0 10px rgba(255, 255, 255, .5);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.mj-capa-venda {
+  position: absolute;
+  border-radius: 50%;
+  border: 3px solid rgba(239, 231, 210, .55);
+  pointer-events: none;
+  animation: aparecer .2s ease;
+}
+
+
+/* Aviso de dificultad extra cuando queda poca gente en la arena */
+.opcion__presion {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 100px;
+  font-size: 10px;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  color: #e2705f;
+  background: rgba(226, 112, 95, .16);
+  border: 1px solid rgba(226, 112, 95, .35);
+}

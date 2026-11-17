@@ -326,9 +326,52 @@ const PREGUNTAS_EXTRA = [
 ];
 
 /* Mezcla y recorta: cada partida tiene preguntas distintas y opciones en otro orden */
+/* Preguntas ya usadas en partidas anteriores: se guardan para no repetirlas */
+const CLAVE_PREGUNTAS = 'jdh.preguntasUsadas';
+
+function leerPreguntasUsadas() {
+  try {
+    const crudo = localStorage.getItem(CLAVE_PREGUNTAS);
+    const lista = crudo ? JSON.parse(crudo) : [];
+    return Array.isArray(lista) ? lista : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function guardarPreguntasUsadas(lista) {
+  try {
+    localStorage.setItem(CLAVE_PREGUNTAS, JSON.stringify(lista.slice(-40)));
+  } catch (e) { /* sin almacenamiento, no pasa nada */ }
+}
+
 function prepararPreguntasPartida() {
   const banco = PREGUNTAS_BASE.concat(PREGUNTAS_EXTRA);
-  const elegidas = barajar(banco).slice(0, 7);
+
+  // Se descartan las repetidas dentro del propio banco, por si acaso
+  const vistos = new Set();
+  const unicas = banco.filter((p) => {
+    const clave = (p.texto || '').trim().toLowerCase();
+    if (vistos.has(clave)) return false;
+    vistos.add(clave);
+    return true;
+  });
+
+  // Primero las que no han salido en partidas anteriores
+  const usadas = new Set(leerPreguntasUsadas().map((t) => String(t).trim().toLowerCase()));
+  let disponibles = unicas.filter((p) => !usadas.has(p.texto.trim().toLowerCase()));
+
+  // Si ya se han visto casi todas, se reinicia el historial para poder seguir jugando
+  if (disponibles.length < 7) {
+    guardarPreguntasUsadas([]);
+    disponibles = unicas;
+  }
+
+  const elegidas = barajar(disponibles).slice(0, 7);
+
+  // Se apuntan como usadas para la próxima partida
+  guardarPreguntasUsadas(leerPreguntasUsadas().concat(elegidas.map((p) => p.texto)));
+
   return elegidas.map((p) => ({ ...p, opciones: barajar(p.opciones) }));
 }
 
@@ -800,6 +843,20 @@ function iniciarTest() {
   test.puntos = {};
   // Cada partida: preguntas distintas del banco y opciones en otro orden
   PREGUNTAS = prepararPreguntasPartida();
+  // Control extra: si por lo que sea se colara una repetida, se cambia sobre la marcha
+  const vistas = new Set();
+  PREGUNTAS = PREGUNTAS.filter((p) => {
+    const clave = p.texto.trim().toLowerCase();
+    if (vistas.has(clave)) return false;
+    vistas.add(clave);
+    return true;
+  });
+  while (PREGUNTAS.length < TOTAL_PREGUNTAS && PREGUNTAS.length < 7) {
+    const extra = prepararPreguntasPartida().filter((p) => !vistas.has(p.texto.trim().toLowerCase()));
+    if (!extra.length) break;
+    vistas.add(extra[0].texto.trim().toLowerCase());
+    PREGUNTAS.push(extra[0]);
+  }
   Object.keys(ROLES).forEach((k) => { test.puntos[k] = 0; });
   pintarPregunta();
 }
@@ -1027,10 +1084,14 @@ function prepararArena() {
   estado.dueloHecho = false;
   estado.clima = 'despejado';
   estado.climaTurnos = 0;
+  // La cornucopia y la Fiesta no pueden caer seguidas: al menos tres turnos entre una y otra
   estado.cornucopiaTurno = 3 + Math.floor(Math.random() * 3);
   estado.cornucopiaAbierta = false;
-  estado.fiestaTurno = 7 + Math.floor(Math.random() * 4);
+  estado.fiestaTurno = estado.cornucopiaTurno + 3 + Math.floor(Math.random() * 3);
   estado.fiestaAbierta = false;
+  estado.eventoHecho = false;
+  estado.eventosUsados = [];
+  estado.resolviendoEvento = false;
   estado.objetivo = null;
   estado.esperandoEleccion = false;
   estado.bloqueoCombate = false;
@@ -1398,12 +1459,12 @@ function escenaInicial() {
   return conOpcionesBarajadas(escenaApertura());
 }
 
-function conOpcionesBarajadas(escena) {
+function conOpcionesBarajadas(escena, forzarNuevas) {
   // La apertura (la cornucopia) mantiene siempre sus tres opciones; el resto varía
   if (escena.id === 'cornucopia' || escena.apertura) {
     return { ...escena, opciones: barajar(escena.opciones) };
   }
-  return { ...escena, opciones: opcionesVariadas(escena) };
+  return { ...escena, opciones: opcionesVariadas(escena, forzarNuevas) };
 }
 
 /* ============================================================
@@ -1559,9 +1620,11 @@ function familiaDeEscena(escena, tipo) {
 }
 
 /* Mezcla las opciones de la escena con otras de su familia: nunca el mismo trío */
-function opcionesVariadas(escena) {
+/* Opciones que ya han salido en esta partida: no se repiten hasta agotar el pozo */
+const opcionesUsadas = new Set();
+
+function opcionesVariadas(escena, forzarNuevas) {
   const base = escena.opciones.map((o) => ({ ...o }));
-  const extra = OPCIONES_EXTRA[escena.familia || 'riesgo'] || [];
   const familia = familiaDeEscena(escena, escena.familia || 'riesgo');
   const pozo = [];
   familia.forEach((f) => { if (OPCIONES_EXTRA[f]) pozo.push(...OPCIONES_EXTRA[f]); });
@@ -1570,30 +1633,47 @@ function opcionesVariadas(escena) {
   const t = (escena.texto || '').toLowerCase();
   OPCIONES_ESPECIFICAS.forEach((g) => { if (g.clave.test(t)) pozo.push(...g.opciones); });
 
-  // Los tipos que ya tiene la escena deben seguir presentes para no romper el árbol
-  const tiposBase = [...new Set(base.map((o) => o.tipo))];
-  const elegidas = [...base];
-  const usadosTexto = new Set(base.map((o) => o.texto));
+  // Con "pensar otra cosa" no se queda ninguna de las que ya estaban en pantalla
+  const yaEnPantalla = new Set(forzarNuevas && escenaActual ? escenaActual.opciones.map((o) => o.texto) : []);
+  const usadosTexto = new Set(forzarNuevas ? [...yaEnPantalla] : base.map((o) => o.texto));
 
-  // Dos huecos fijos de relleno: uno del pozo, otro de cualquier familia
-  const candidatas = barajar(pozo).filter((o) => !usadosTexto.has(o.texto));
-  let añadidas = 0;
-  for (const c of candidatas) {
-    if (añadidas >= 2) break;
-    elegidas.push({ ...c, tipo: c.tipo || elegir(tiposBase) });
-    usadosTexto.add(c.texto);
-    añadidas += 1;
-  }
-  // Si la escena es corta, un tercer refuerzo
-  if (elegidas.length < 5) {
-    const otras = barajar([].concat(...Object.values(OPCIONES_EXTRA)))
-      .filter((o) => !usadosTexto.has(o.texto));
-    for (const o of otras) {
-      if (elegidas.length >= 5) break;
+  // Candidatas: primero las que no han salido nunca en la partida
+  const todas = barajar(pozo).filter((o) => !usadosTexto.has(o.texto));
+  const frescas = todas.filter((o) => !opcionesUsadas.has(o.texto));
+  const gastadas = todas.filter((o) => opcionesUsadas.has(o.texto));
+
+  const elegidas = [];
+  // Con refresco, la escena cambia de arriba abajo: se tiran sus opciones originales
+  if (!forzarNuevas) elegidas.push(...base);
+
+  const rellenar = (lista, cuantas) => {
+    let puestas = 0;
+    for (const o of lista) {
+      if (puestas >= cuantas) break;
+      if (elegidas.some((e) => e.texto === o.texto)) continue;
       elegidas.push({ ...o });
       usadosTexto.add(o.texto);
+      opcionesUsadas.add(o.texto);
+      puestas += 1;
     }
+    return puestas;
+  };
+
+  // Con refresco se sustituyen todas; sin refresco se añaden dos nuevas
+  const objetivo = forzarNuevas ? 5 : 2;
+  let puestas = rellenar(frescas, objetivo);
+  if (puestas < objetivo) puestas += rellenar(gastadas, objetivo - puestas);
+
+  // Si aun así falta, se completa con opciones de cualquier familia
+  if (elegidas.length < (forzarNuevas ? 4 : 5)) {
+    const otras = barajar([].concat(...Object.values(OPCIONES_EXTRA)))
+      .filter((o) => !usadosTexto.has(o.texto) && !opcionesUsadas.has(o.texto));
+    rellenar(otras, (forzarNuevas ? 4 : 5) - elegidas.length);
   }
+
+  // Cuando el pozo se agota, se vacía la memoria de usadas y se vuelve a empezar
+  if (opcionesUsadas.size >= 70) opcionesUsadas.clear();
+
   return barajar(elegidas);
 }
 
@@ -2109,7 +2189,9 @@ let rellenoUsados = { lago: [], reloj: [] };
 function escenaRelleno() {
   const arena = estado.arena;
   const pozo = RELLENO_ESCENAS[arena] || RELLENO_ESCENAS.lago;
-  let libres = pozo.filter((e) => !rellenoUsados[arena].includes(e.texto));
+  // La situación anterior no sale otra vez justo después
+  const anterior = estado.textoEscenaAnterior || '';
+  let libres = pozo.filter((e) => !rellenoUsados[arena].includes(e.texto) && e.texto !== anterior);
   if (!libres.length) { rellenoUsados[arena] = []; libres = pozo.slice(); }
   const base = elegir(libres);
   rellenoUsados[arena].push(base.texto);
@@ -2123,6 +2205,9 @@ function escenaRelleno() {
 }
 
 /* ---------- Selección de la siguiente escena ---------- */
+
+/* Qué probabilidad hay de que vuelva a salir la situación que acabas de vivir */
+const PROB_REPETIR_ESCENA = 0.12;
 
 function nodosDelArbol() {
   return ESCENAS_ARBOL[estado.arena] || ESCENAS_ARBOL.lago;
@@ -2144,16 +2229,20 @@ function siguienteEscena(ultimaOpcion, ultimoBien) {
   const nodos = nodosDelArbol();
   const aliados = estado.alianza.length + estado.tributos.filter((t) => t.vivo && !t.yo && t.alianza.includes(estado.yo.id)).length;
 
+  // La última situación vivida se recuerda: repetirla es raro, no imposible
+  const ultimaEscenaId = historialEscenas[historialEscenas.length - 1];
+  const repetible = (n) => n.id !== ultimaEscenaId || Math.random() < PROB_REPETIR_ESCENA;
+
   // 0. De vez en cuando, una escena de situación nueva aunque queden nodos del árbol
   const turnos = (estado.turno || 0);
   if (turnos > 2 && turnos % 3 === 0 && Math.random() < 0.45) return escenaRelleno();
 
   // 1. Consecuencia directa de la última decisión (mismo tipo y mismo resultado)
-  const consecuencia = nodos.filter((n) => n.despues === ultimaOpcion && n.exito === ultimoBien && !usados.has(n.id));
+  const consecuencia = nodos.filter((n) => n.despues === ultimaOpcion && n.exito === ultimoBien && !usados.has(n.id) && repetible(n));
   if (consecuencia.length) return elegir(consecuencia);
 
   // 2. Consecuencia del mismo tipo de acción, sea cual sea el resultado
-  const mismoTipo = nodos.filter((n) => n.despues === ultimaOpcion && !usados.has(n.id));
+  const mismoTipo = nodos.filter((n) => n.despues === ultimaOpcion && !usados.has(n.id) && repetible(n));
   if (mismoTipo.length) return elegir(mismoTipo);
 
   // 3. Algo que nazca del estado del cuerpo y de la situación
@@ -2172,15 +2261,63 @@ function siguienteEscena(ultimaOpcion, ultimoBien) {
 
   // 5. Nada del árbol: se tira de las escenas de la arena que no hayan salido
   const base = estado.arena === 'reloj' ? ESCENAS_RELOJ : ESCENAS_LAGO;
-  const libres = base.concat(escenasPartida[estado.arena] || []).filter((e) => !usados.has(e.id));
+  const libres = base.concat(escenasPartida[estado.arena] || []).filter((e) => !usados.has(e.id) && e.id !== ultimaEscenaId);
   if (libres.length) return elegir(libres);
 
   // 6. Se ha agotado todo: escena de relleno nueva, con opciones de su familia
   return escenaRelleno();
 }
 
-function ofrecerOpciones(escena) {
-  escena = conOpcionesBarajadas(escena);
+/* Cuánta cordura cuesta pedir otras opciones: sube con cada uso en la misma escena */
+function costePensar() {
+  const base = 6 + Math.floor((estado.refrescos || 0) * 4);
+  return Math.max(4, base);
+}
+
+/* ---------- Dificultad según la gente que queda en la arena ----------
+   Con 24 tributos hay margen para equivocarse; con tres, cada uno pelea por el
+   último puesto y todo lo que implique a otro tributo se vuelve más duro. */
+
+function presionArena() {
+  const vivos = estado.tributos.filter((t) => t.vivo && !t.yo).length;
+  // De 0 (arena llena) a 1 (solo quedáis dos)
+  return clamp((20 - Math.min(20, vivos)) / 16, 0, 1);
+}
+
+/* Penalización de la tirada según el tipo de acción y la gente que queda */
+function penalizacionPresion(tipo) {
+  const base = { atacar: 0.22, alianza: 0.20, ayudar: 0.12, riesgo: 0.14, huir: 0.08, sigilo: 0.05 }[tipo] || 0.08;
+  return presionArena() * base;
+}
+
+/* Los tributos que quedan se han hecho más fuertes: refleja la presión */
+function reforzarSupervivientes() {
+  const vivos = estado.tributos.filter((t) => t.vivo && !t.yo);
+  if (vivos.length > 6) return;
+  vivos.forEach((t) => {
+    if (t.reforzado) return;
+    t.reforzado = true;
+    t.fuerza = clamp((t.fuerza || 5) + 1, 1, 10);
+  });
+}
+
+const NOMBRE_STAT = {
+  fuerza: 'fuerza', resistencia: 'resistencia', inteligencia: 'inteligencia',
+  supervivencia: 'supervivencia', agilidad: 'agilidad', combate: 'combate',
+  patrocinadores: 'carisma'
+};
+
+const STAT_POR_TIPO = {
+  atacar: 'combate', huir: 'agilidad', ayudar: 'supervivencia',
+  alianza: 'inteligencia', sigilo: 'agilidad', riesgo: 'resistencia'
+};
+
+function ofrecerOpciones(escena, esRefresco) {
+  if (!esRefresco) {
+    estado.refrescos = 0;
+    estado.textoEscenaAnterior = escena.texto || '';
+  }
+  escena = conOpcionesBarajadas(escena, esRefresco);
   escenaActual = escena;
   estado.esperandoEleccion = false;
 
@@ -2189,7 +2326,7 @@ function ofrecerOpciones(escena) {
   if (estado.ultimoEco) narrar(`<span class="eco-antes">${escapar(estado.ultimoEco)}</span>`, 'eco');
   narrar(escena.texto, 'escena-texto');
   cajaOpciones.innerHTML = '';
-  const letras = 'ABCDEFGH'.split('');
+  const letras = 'ABCDEFGHIJKLMNOP'.split('');
 
   const combate = escena.opciones.some((o) => o.tipo === 'atacar');
   estado.enCombate = combate;
@@ -2198,22 +2335,45 @@ function ofrecerOpciones(escena) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'opcion';
+    const st = STAT_POR_TIPO[op.tipo] || 'supervivencia';
+    const valor = estado.stats[st] || 5;
+    const marca = valor >= 8 ? 'stat--alta' : valor <= 3 ? 'stat--baja' : '';
+    const tension = penalizacionPresion(op.tipo) >= 0.07
+      ? `<span class="opcion__presion" title="Queda poca gente: esta acción es más difícil">⚔ +difícil</span>` : '';
     btn.innerHTML = `<span class="opcion__letra">${letras[i]}</span>
-      <span>${escapar(op.texto)}<span class="opcion__efecto">${op.efecto}</span></span>`;
+      <span>${escapar(op.texto)}<span class="opcion__efecto">${op.efecto}
+        <span class="opcion__stat ${marca}">${NOMBRE_STAT[st]} ${valor}</span>${tension}</span></span>`;
     btn.addEventListener('click', () => elegirOpcion(op));
     cajaOpciones.appendChild(btn);
   });
 
-  // Cambiar de idea: pide otras opciones para la misma escena
+  // Cambiar de idea: pide otras opciones para la misma escena, y cuesta cordura
   if (escena.id !== 'cornucopia' && !escena.apertura) {
+    const coste = costePensar();
+    const puede = estado.cordura >= coste;
     const otra = document.createElement('button');
     otra.type = 'button';
     otra.className = 'opcion opcion--refrescar';
+    otra.disabled = !puede || estado.fin;
     otra.innerHTML = `<span class="opcion__letra">↻</span>
-      <span>Pensar otra cosa.<span class="opcion__efecto">Otras opciones para esta misma escena</span></span>`;
+      <span>Pensar otra cosa.<span class="opcion__efecto">${puede
+        ? `Otras opciones para esta misma escena · cordura −${coste}`
+        : `Necesitas ${coste} de cordura y tienes ${Math.round(estado.cordura)}`}</span></span>`;
     otra.addEventListener('click', () => {
       if (estado.fin || estado.esperandoEleccion) return;
-      ofrecerOpciones(escena);
+      if (estado.cordura < costePensar()) {
+        // Se repinta para que el texto del botón muestre el coste real de ahora
+        ofrecerOpciones(escena, true);
+        actualizarHUD();
+        return;
+      }
+      // El coste crece con cada uso seguido: pensar mucho desgasta
+      const pagado = costePensar();
+      estado.refrescos = (estado.refrescos || 0) + 1;
+      estado.cordura = clamp(estado.cordura - pagado, 0, 100);
+      estado.ultimoEco = `Antes: te paraste a pensar otra salida (cordura −${pagado}).`;
+      ofrecerOpciones(escena, true);
+      actualizarHUD();
     });
     cajaOpciones.appendChild(otra);
   }
@@ -2338,7 +2498,14 @@ function mjTiempo(segundos, alAgotarse) {
 }
 
 /* Abre un minijuego y devuelve una promesa con true (acierto) o false (fallo) */
-function jugarMinijuego(clave) {
+async function jugarMinijuego(clave) {
+  // Nunca dos minijuegos a la vez: si hay uno en marcha, se espera a que acabe
+  let esperas = 0;
+  while (mj && mj.activo && esperas < 200) {
+    await dormir(120);
+    esperas += 1;
+    if (estado.fin) return false;
+  }
   return new Promise((resolve) => {
     const def = MINIJUEGOS[clave];
     if (!def) { resolve(true); return; }
@@ -2354,6 +2521,7 @@ function jugarMinijuego(clave) {
     const res = document.querySelector('#mj-resultado');
     res.textContent = '';
     res.className = 'minijuego__resultado';
+    capa.dataset.juego = clave;
 
     let cerrado = false;
     let abandonado = false;
@@ -2766,7 +2934,7 @@ function mjSaqueo(lienzo, terminar) {
   });
   lienzo.appendChild(caja);
 
-  const limite = 2 + (estado.stats.agilidad >= 7 ? 1 : 0);
+  const limite = 3; // siempre tres objetos, ni uno más
   let cogidos = 0;
   let puntos = 0;
   const marcador = document.createElement('div');
@@ -2784,7 +2952,11 @@ function mjSaqueo(lienzo, terminar) {
     el.classList.add(util ? 'util' : 'basura');
     marcador.textContent = `${cogidos} / ${limite}`;
     if (cogidos >= limite) {
-      terminar(puntos > 0, puntos > 0 ? `Te llevas ${puntos} cosa${puntos > 1 ? 's' : ''} que sirve${puntos > 1 ? 'n' : ''}.` : 'Solo basura.');
+      // No se puede coger ni uno más: el resto de la bolsa queda ahí
+      caja.querySelectorAll('.mj-objeto:not(.cogido)').forEach((o) => o.classList.add('bloqueado'));
+      terminar(puntos > 0, puntos > 0
+        ? `Te llevas 3 objetos: ${puntos} de ellos sirven.`
+        : 'Te llevas 3 objetos, y ninguno sirve.');
     }
   });
 }
@@ -3389,6 +3561,134 @@ function mjSangre(lienzo, terminar) {
   lienzo.addEventListener('pointerdown', () => { ultimoClic = performance.now(); });
 }
 
+/* --- 20. Cazar: apunta y dispara a una presa que se mueve --- */
+function mjCazar(lienzo, terminar) {
+  const ctx = mjContexto(lienzo, terminar);
+  let presas = 0;
+  let tiros = 3;
+  let ultimo = performance.now();
+  const animales = [];
+
+  ctx.setExtra('Flechas: 3/3');
+
+  const crear = () => {
+    const tipo = elegir(['🐇', '🦌', '🐗', '🦊']);
+    // La presa se mueve en horizontal por el suelo del lienzo, esquivando
+    // Se mueve dentro del lienzo, con margen para que no se salga por los lados
+    const margen = 30;
+    const y = margen + Math.random() * (ctx.alto - margen * 2 - 20);
+    const el = ctx.pieza('mj-presa', margen, y);
+    el.textContent = tipo;
+    animales.push({
+      el, x: margen, y, vx: (Math.random() < 0.5 ? -1 : 1) * (1.6 + Math.random() * 1.6),
+      viva: true, salto: Math.random() * 6, margen
+    });
+    return el;
+  };
+  for (let i = 0; i < 2; i++) crear();
+
+  const animar = (t) => {
+    const dt = Math.min(40, t - ultimo) / 16;
+    ultimo = t;
+    animales.forEach((a) => {
+      if (!a.viva) return;
+      a.x += a.vx * dt;
+      a.salto += 0.12 * dt;
+      // Rebota en los bordes: siempre visible y siempre alcanzable
+      if (a.x < a.margen || a.x > ctx.ancho - a.margen) {
+        a.vx *= -1;
+        a.x = clamp(a.x, a.margen, ctx.ancho - a.margen);
+      }
+      a.el.style.left = `${a.x}px`;
+      a.el.style.top = `${a.y - Math.abs(Math.sin(a.salto)) * 14}px`;
+    });
+    mj.raf = requestAnimationFrame(animar);
+  };
+  mj.raf = requestAnimationFrame(animar);
+
+  lienzo.addEventListener('pointerdown', (ev) => {
+    if (tiros <= 0) return;
+    const r = lienzo.getBoundingClientRect();
+    const px = ev.clientX - r.left;
+    const py = ev.clientY - r.top;
+    // El animal se dibuja con transform: translate(-50%, -50%), así que su centro es (x, y)
+    const diana = animales.find((a) => a.viva && Math.hypot(a.x - px, a.y - py) < 30);
+    tiros -= 1;
+    ctx.setExtra(`Flechas: ${tiros}/3`);
+    if (diana) {
+      diana.viva = false;
+      diana.el.classList.add('cazada');
+      presas += 1;
+      ctx.sumar(30, '¡Presa!');
+      setTimeout(() => crear(), 400);
+    } else {
+      ctx.sumar(-5, 'Fallo');
+    }
+    if (tiros <= 0) {
+      ctx.acabar(presas > 0, presas > 0 ? `Vuelves con ${presas} presa${presas > 1 ? 's' : ''}.` : 'Se te escapan todas.');
+    }
+  });
+}
+
+/* --- 21. Vendarse: Enrolla la venda alrededor de la herida --- */
+function mjVendaje(lienzo, terminar) {
+  const ctx = mjContexto(lienzo, terminar);
+  const herida = ctx.pieza('mj-herida');
+  herida.style.left = `${ctx.ancho / 2 - 46}px`;
+  herida.style.top = `${ctx.alto / 2 - 46}px`;
+  herida.textContent = '🩸';
+
+  const venda = ctx.pieza('mj-venda');
+  const capas = [];
+  let pon = 0;            // vueltas dadas
+  const total = 5;
+  let angulo = 0;
+
+  ctx.setExtra('Vueltas: 0/5');
+
+  // Arrastrar en círculo alrededor de la herida: cada vuelta completa cuenta
+  const r = 46;
+  const cx = ctx.ancho / 2;
+  const cy = ctx.alto / 2;
+
+  const girar = (ev) => {
+    const rect = lienzo.getBoundingClientRect();
+    const px = ev.clientX - rect.left;
+    const py = ev.clientY - rect.top;
+    const dist = Math.hypot(px - cx, py - cy);
+    // Hay que arrastrar por el borde de la herida, ni dentro ni lejos
+    if (dist < r - 20 || dist > r + 26) return;
+    const nuevo = Math.atan2(py - cy, px - cx);
+    venda.style.left = `${px - 12}px`;
+    venda.style.top = `${py - 12}px`;
+    let delta = nuevo - angulo;
+    if (delta > Math.PI) delta -= Math.PI * 2;
+    if (delta < -Math.PI) delta += Math.PI * 2;
+    angulo = nuevo;
+    pon += Math.abs(delta);
+
+    // Cada 2π radianes: una vuelta completa
+    while (pon >= Math.PI * 2) {
+      pon -= Math.PI * 2;
+      const c = ctx.pieza('mj-capa-venda');
+      c.style.left = `${cx - r - 4 - capas.length * 2}px`;
+      c.style.top = `${cy - r - 4 - capas.length * 2}px`;
+      c.style.width = `${(r + 4 + capas.length * 2) * 2}px`;
+      c.style.height = `${(r + 4 + capas.length * 2) * 2}px`;
+      capas.push(c);
+      ctx.sumar(20);
+      ctx.setExtra(`Vueltas: ${capas.length}/${total}`);
+      if (capas.length >= total) {
+        herida.textContent = '🩹';
+        ctx.acabar(true, 'Venda bien puesta: la herida deja de sangrar.');
+      }
+    }
+  };
+  lienzo.addEventListener('pointermove', girar);
+  lienzo.addEventListener('pointerdown', (ev) => { angulo = 0; girar(ev); });
+  mj.limpiar = () => { lienzo.removeEventListener('pointermove', girar); };
+}
+
 const MINIJUEGOS = {
   niebla: {
     etiqueta: 'MINIJUEGO · AIRE',
@@ -3534,10 +3834,26 @@ const MINIJUEGOS = {
     fallo: 'No recuerdas el orden.',
     montar: mjMemoria
   },
+  cazar: {
+    etiqueta: 'MINIJUEGO · CAZA',
+    titulo: 'Cazar la presa',
+    instrucciones: 'La presa corre por el suelo y bota. Pulsa justo encima para disparar la flecha. Tienes 3 flechas: con una presa basta.',
+    segundos: 12,
+    fallo: 'La presa se pierde entre los árboles.',
+    montar: mjCazar
+  },
+  vendaje: {
+    etiqueta: 'MINIJUEGO · CURACIÓN',
+    titulo: 'Enrollar la venda',
+    instrucciones: 'Arrastra el dedo o el ratón en círculo alrededor de la herida, sin salirte del borde. Da cinco vueltas completas.',
+    segundos: 14,
+    fallo: 'La venda se queda suelta y la herida sigue sangrando.',
+    montar: mjVendaje
+  },
   saqueo: {
     etiqueta: 'MINIJUEGO · BOTÍN',
     titulo: 'Saqueo a contrarreloj',
-    instrucciones: 'Coge solo lo que sirva antes de que el otro tributo llegue. Los objetos inútiles no cuentan.',
+    instrucciones: 'Solo puedes coger 3 objetos antes de que llegue el otro tributo. Elige bien: los que brillan en verde sirven, los grises son basura.',
     segundos: 6,
     fallo: 'Llega el otro tributo y te vas con las manos vacías.',
     montar: mjSaqueo
@@ -3618,22 +3934,115 @@ async function cerrarTurnoLibre() {
   resolverTrampas();
 
   if (estado.cornucopiaAbierta || estado.fiestaAbierta) return; // evento pendiente de elegir
+  guardarEstado();
   await ofrecerEscenaSiguiente();
+
+  // Los eventos de mitad de los Juegos también llegan por aquí: si toca, se sirve uno solo
+  // y no se sigue con nada más hasta que el jugador decida.
+  if (!estado.fin && (estado.cornucopiaAbierta || estado.fiestaAbierta)) return;
   if (tocaAcontecimiento && !estado.fin && !estado.cornucopiaAbierta && !estado.fiestaAbierta) {
     estado.acontecimientoPendiente = true;
     dormir(420).then(() => lanzarAcontecimiento());
   }
 }
 
+/* Lee la partida guardada: si el navegador está a medias, se completa con lo que falte */
+function cargarEstadoGuardado() {
+  try {
+    const crudo = localStorage.getItem('jdh.estado');
+    if (!crudo) return false;
+    const datos = JSON.parse(crudo);
+    if (!datos || !datos.tributos || !datos.yo) return false;
+    Object.assign(estado, datos);
+    // Campos que pueden faltar en partidas guardadas por versiones anteriores
+    if (!Array.isArray(estado.eventosUsados)) estado.eventosUsados = [];
+    if (typeof estado.turno !== 'number') estado.turno = 0;
+    if (typeof estado.cornucopiaTurno !== 'number') estado.cornucopiaTurno = 4;
+    if (typeof estado.fiestaTurno !== 'number') estado.fiestaTurno = estado.cornucopiaTurno + 4;
+    estado.cornucopiaAbierta = false;
+    estado.fiestaAbierta = false;
+    estado.resolviendoEvento = false;
+    estado.esperandoEleccion = false;
+    estado.eventoHecho = false;
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function borrarEstadoGuardado() {
+  try { localStorage.removeItem('jdh.estado'); } catch (e) { /* nada */ }
+}
+
+/* Autoguardado: si cierras el navegador, la partida sigue donde la dejaste */
+function guardarEstado() {
+  if (!estado || estado.fin || !estado.yo) return;
+  try {
+    localStorage.setItem('jdh.estado', JSON.stringify({
+      turno: estado.turno,
+      edicion: estado.edicion,
+      arena: estado.arena,
+      vida: estado.vida,
+      cansancio: estado.cansancio,
+      cordura: estado.cordura,
+      hambre: estado.hambre,
+      sed: estado.sed,
+      patrocinio: estado.patrocinio,
+      sangrado: estado.sangrado,
+      heridas: estado.heridas,
+      inventario: estado.inventario,
+      alianza: estado.alianza,
+      tributos: estado.tributos,
+      yo: estado.yo,
+      stats: estado.stats,
+      clima: estado.clima,
+      eventosUsados: estado.eventosUsados || [],
+      cornucopiaTurno: estado.cornucopiaTurno,
+      fiestaTurno: estado.fiestaTurno,
+      historial: estado.historial,
+      imagen: estado.imagen,
+      guardado: Date.now()
+    }));
+  } catch (e) { /* sin espacio o sin permisos: se juega igual */ }
+}
+
+/* Sirve el evento especial que toque, si queda alguno por ver. Devuelve true si lo ha servido. */
+function servirEventoPendiente() {
+  if (estado.fin || estado.cornucopiaAbierta || estado.fiestaAbierta || estado.resolviendoEvento) return false;
+  const hechos = estado.eventosUsados || [];
+  if (window.__diagEventos) window.__diagEventos.push({ turno: estado.turno, hechos: hechos.slice(), cornucopiaTurno: estado.cornucopiaTurno });
+  if (!hechos.includes('cornucopia') && (estado.turno || 0) >= estado.cornucopiaTurno) {
+    try {
+      reabrirCornucopia();
+    } catch (e) {
+      // Nunca se deja el juego colgado por un evento: se da por visto y se sigue
+      estado.eventosUsados = (estado.eventosUsados || []).concat('cornucopia');
+      estado.cornucopiaAbierta = false;
+      estado.resolviendoEvento = false;
+      return false;
+    }
+    return true;
+  }
+  if (!hechos.includes('fiesta') && (estado.turno || 0) >= estado.fiestaTurno) {
+    try {
+      fiestaCapitolio();
+    } catch (e) {
+      estado.eventosUsados = (estado.eventosUsados || []).concat('fiesta');
+      estado.fiestaAbierta = false;
+      estado.resolviendoEvento = false;
+      return false;
+    }
+    return true;
+  }
+  return false;
+}
+
 /* Elige y muestra la siguiente escena del árbol (lo usan acciones y decisiones) */
 async function ofrecerEscenaSiguiente() {
-  // Eventos que llegan a mitad de los Juegos y exigen una decisión
-  if (!estado.cornucopiaAbierta && estado.turno >= estado.cornucopiaTurno) {
-    reabrirCornucopia();
-    return;
-  }
-  if (!estado.fiestaAbierta && estado.turno >= estado.fiestaTurno) {
-    fiestaCapitolio();
+  // Nunca dos eventos especiales seguidos: si uno acaba de pasar, toca escena normal
+  if (estado.eventoHecho) {
+    estado.eventoHecho = false;
+  } else if (servirEventoPendiente()) {
     return;
   }
   const accion = estado.ultimaAccion || { tipo: 'sigilo', bien: true };
@@ -3741,8 +4150,29 @@ async function cazar() {
   estado.cazar -= 1;
   estado.cansancio = clamp(estado.cansancio + 14, 0, 100);
 
-  const suerte = clamp(0.35 + (estado.stats.supervivencia + estado.stats.agilidad) * 0.05
-    + climaActual().escondite, 0.2, 0.9);
+  const suerte = clamp(0.18 + estado.stats.supervivencia * 0.055 + estado.stats.agilidad * 0.035
+    + climaActual().escondite - (estado.cansancio / 100) * 0.2 - presionArena() * 0.12, 0.1, 0.92);
+
+  // Con el hambre apretando (40 o menos) o sin nada en el equipo, hay que apuntar de verdad
+  const apurado = estado.hambre <= 40 && !estado.inventario.some((i) => COMIDA[i]);
+  if (apurado) {
+    const cazado = await jugarMinijuego('cazar');
+    if (estado.fin) return;
+    if (cazado) {
+      const presa = elegir(['Carne asada', 'Pescado ahumado', 'Raciones']);
+      anadirObjetos([presa]);
+      estado.cordura = clamp(estado.cordura + 4, 0, 100);
+      estado.ultimoEco = `Antes: cazaste y volviste con ${presa}.`;
+      narrar(`<span class="linea-bien">Aguantas la respiración, corriges la puntería y aciertas. Vuelves con <em>${escapar(presa)}</em>. El hambre puede esperar.</span>`);
+      cerrarTurnoLibre();
+      return;
+    }
+    const h = nuevaHerida('leve');
+    estado.ultimoEco = 'Antes: la presa se te escapó entre los árboles.';
+    narrar(`<span class="linea-muerte">La presa te oye antes de que dispares y sale corriendo. Vuelves con las manos vacías: <em>${escapar(h.nombre)}</em>.</span>`);
+    cerrarTurnoLibre();
+    return;
+  }
 
   if (Math.random() < suerte) {
     const piezas = ['Carne asada', 'Pescado ahumado', 'Bayas secas', 'Raciones'];
@@ -3766,10 +4196,19 @@ function ponerTrampa() {
     narrar('<span class="ayuda">Ya tienes dos trampas colocadas. Más de eso y no podrías vigilarlas.</span>');
     return;
   }
+  const maña = estado.stats.inteligencia;
+  // Con inteligencia baja la trampa puede quedar mal armada y no contar
+  if (Math.random() > clamp(0.25 + maña * 0.09, 0.2, 0.95)) {
+    estado.cansancio = clamp(estado.cansancio + 6, 0, 100);
+    estado.ultimoEco = 'Antes: montaste una trampa que no aguanta ni un empujón.';
+    narrar(`<span class="linea-muerte">Montas la trampa con prisa y queda torcida: no aguantaría ni a un conejo. Con ${maña} de inteligencia, la artesanía no es lo tuyo.</span>`);
+    cerrarTurnoLibre();
+    return;
+  }
   estado.trampas += 1;
   estado.cansancio = clamp(estado.cansancio + 8, 0, 100);
   estado.ultimoEco = 'Antes: colocaste una trampa.';
-  narrar('<span class="linea-bien">Colocas una trampa con lo que llevas: cuerdas, ramas y un poco de paciencia. Ahora toca esperar.</span>');
+  narrar(`<span class="linea-bien">Colocas una trampa con lo que llevas: cuerdas, ramas y ${maña >= 8 ? 'una idea bastante retorcida' : 'un poco de paciencia'}. Ahora toca esperar.</span>`);
   cerrarTurnoLibre();
 }
 
@@ -3796,14 +4235,34 @@ async function vendarse() {
     narrar('<span class="ayuda">No tienes nada que vendarte: el cuerpo aguanta por ahora.</span>');
     return;
   }
+  // Con sangrado activo hay que vendarse bien: minijuego de enrollar la venda
+  if (estado.sangrado) {
+    const bien = await jugarMinijuego('vendaje');
+    if (estado.fin) return;
+    if (!bien) {
+      estado.ultimoEco = 'Antes: la venda se quedó suelta y la herida siguió sangrando.';
+      narrar('<span class="linea-muerte">La venda se te escurre y no aprieta lo suficiente. La sangre sigue saliendo y el tiempo se acaba.</span>');
+      cerrarTurnoLibre();
+      return;
+    }
+    narrar('<span class="linea-bien">Enrollas la venda vuelta a vuelta hasta que aprieta donde debe.</span>');
+  }
+
   estado.ultimoEco = 'Antes: te vendaste las heridas.';
   estado.sangrado = false;
   const antes = estado.heridas.length;
-  estado.heridas = estado.heridas.filter((h) => h.gravedad !== 'leve');
-  estado.vida = clamp(estado.vida + 8, 0, 100);
+  const pericia = estado.stats.supervivencia;
+  // Con poca supervivencia solo cierras lo leve; con mucha, también lo grave
+  estado.heridas = estado.heridas.filter((h) => {
+    if (h.gravedad === 'leve') return false;
+    if (h.gravedad === 'grave') return pericia < 7 ? true : Math.random() < 0.5;
+    return true;
+  });
+  const curacion = Math.round(6 + pericia * 1.6);
+  estado.vida = clamp(estado.vida + curacion, 0, 100);
   estado.cansancio = clamp(estado.cansancio + 6, 0, 100);
   const cerradas = antes - estado.heridas.length;
-  narrar(`<span class="linea-bien">Te vendas con lo que queda limpio. El sangrado se detiene${cerradas ? ` y cierras ${cerradas} herida${cerradas > 1 ? 's' : ''}` : ''}.</span>`);
+  narrar(`<span class="linea-bien">Te vendas con lo que queda limpio${pericia >= 8 ? ', como te enseñaron en casa' : pericia <= 3 ? ', a base de prueba y error' : ''}. El sangrado se detiene${cerradas ? ` y cierras ${cerradas} herida${cerradas > 1 ? 's' : ''}` : ''}. Recuperas ${curacion} de vida.</span>`);
   cerrarTurnoLibre();
 }
 
@@ -3820,15 +4279,18 @@ async function pedirEnvio() {
   }
   estado.pedir -= 1;
   estado.patrocinio = clamp(estado.patrocinio - 18, 0, 100);
+  const carisma = estado.stats.patrocinadores || 5;
   estado.cansancio = clamp(estado.cansancio + 5, 0, 100);
 
-  const bueno = Math.random() < 0.6;
+  // El carisma decide: con patrocinadores altos llega más y mejor
+  const bueno = Math.random() < clamp(0.3 + carisma * 0.07 - presionArena() * 0.1, 0.15, 0.95);
   estado.ultimoEco = bueno ? 'Antes: pediste un envío y llegó.' : 'Antes: pediste un envío y se perdió.';
   if (bueno) {
     const envio = [elegir(Object.keys(CURATIVOS)), elegir(OTROS_OBJETOS)];
+    if (carisma >= 8) envio.push(elegir(Object.keys(ARMAS)));
     anadirObjetos(envio);
     estado.vida = clamp(estado.vida + 6, 0, 100);
-    narrar(`<span class="linea-bien">Un paracaídas plateado cae entre los árboles: <em>${escapar(envio.join(' y '))}</em>. Alguien ahí arriba te quiere vivo.</span>`);
+    narrar(`<span class="linea-bien">Un paracaídas plateado cae entre los árboles: <em>${escapar(envio.join(' y '))}</em>. Alguien ahí arriba te quiere vivo${carisma >= 8 ? ' y no ha escatimado' : ''}.</span>`);
   } else {
     const h = nuevaHerida('leve');
     narrar(`<span class="linea-muerte">El paracaídas cae demasiado lejos y, al correr a por él, tropiezas: <em>${escapar(h.nombre)}</em>. Los patrocinadores se ríen en directo.</span>`);
@@ -3843,16 +4305,26 @@ async function escucharArena() {
   estado.cordura = clamp(estado.cordura + 6, 0, 100);
   estado.cansancio = clamp(estado.cansancio + 4, 0, 100);
 
+  const oido = clamp(0.3 + (estado.stats.inteligencia + estado.stats.supervivencia) * 0.06, 0.2, 0.95);
+  const acierta = Math.random() < oido;
   const cerca = vivos.filter((t) => t.fuerza >= 7);
   const cl = climaActual();
   let texto = `<em>${cl.icono} ${cl.nombre}.</em> ${cl.texto} `;
   texto += vivos.length
     ? `Quedan <strong>${vivos.length}</strong> tributos vivos. `
     : 'No queda nadie más que tú. ';
-  if (cerca.length) {
+  if (cerca.length && acierta) {
     const t = elegir(cerca);
     texto += `A lo lejos se oyen pasos pesados: <em>${escapar(t.nombre)}</em>, del Distrito ${t.distrito}, anda cerca. `;
     estado.objetivo = t.id;
+    // Con buena inteligencia, además adivinas por dónde va a pasar
+    if (estado.stats.inteligencia >= 8) {
+      texto += 'Y por cómo se mueve, sabes por dónde va a pasar antes de que lo haga. ';
+      estado.objetivoConocido = t.id;
+      estado.cordura = clamp(estado.cordura + 4, 0, 100);
+    }
+  } else if (cerca.length) {
+    texto += 'Se oyen pasos, pero no sabrías decir de quién ni por dónde. ';
   } else {
     texto += 'No se oye nada: o están lejos o están esperando. ';
   }
@@ -3937,8 +4409,23 @@ if (btnAgua) btnAgua.addEventListener('click', buscarAgua);
    convoca la Fiesta: dos momentos en los que eliges tú.
    ============================================================ */
 
+/* Panel de cabecera del evento: qué está pasando y qué has decidido ya */
+function pintarCabeceraEvento(icono, titulo, texto) {
+  const caja = $('#caja-acontecimiento');
+  if (!caja) return;
+  caja.hidden = false;
+  $('#ac-icono').textContent = icono;
+  $('#ac-titulo').textContent = titulo;
+  $('#ac-texto').textContent = texto;
+}
+
 function reabrirCornucopia() {
   estado.cornucopiaAbierta = true;
+  estado.eventoHecho = true;
+  if (!estado.eventosUsados) estado.eventosUsados = [];
+  estado.eventosUsados.push('cornucopia');
+  pintarCabeceraEvento('🎁', 'La cornucopia se reabre',
+    'Los Vigilantes han rellenado el centro de la arena. Quien llegue primero se lleva lo mejor.');
   cajaOpciones.innerHTML = '';
   limpiarNarracion();
   narrar('<em>¡La cornucopia vuelve a abrirse!</em> Los Vigilantes han rellenado el centro de la arena mientras los tributos dormían. Quien llegue primero se lleva lo mejor.', 'escena-texto');
@@ -3951,7 +4438,7 @@ function reabrirCornucopia() {
         const ganado = await momentoDecisivo('botin', 'La cornucopia se reabre');
         if (estado.fin) return '';
         if (ganado) {
-          const lote = [armaAleatoria(), ...botinAleatorio('cornucopia')];
+          const lote = [armaAleatoria(), ...botinAleatorio('cornucopia').slice(0, 2)];
           anadirObjetos(lote);
           ajustarPatrocinio(8);
           return `<span class="linea-bien">Llegas antes que nadie y arrasas: <em>${escapar(lote.join(', '))}</em>.</span> <span class="linea-muerte">No sales limpio: la cornucopia siempre cobra su parte.</span>`;
@@ -3995,17 +4482,29 @@ function reabrirCornucopia() {
     btn.innerHTML = `<span class="opcion__letra">${['A', 'B', 'C'][i]}</span>
       <span>${escapar(op.texto)}<span class="opcion__efecto">${escapar(op.efecto)}</span></span>`;
     btn.addEventListener('click', async () => {
-      if (!estado.cornucopiaAbierta) return;
+      // Un solo clic por evento: si ya se está resolviendo, se ignora
+      if (!estado.cornucopiaAbierta || estado.resolviendoEvento) return;
+      estado.resolviendoEvento = true;
       estado.cornucopiaAbierta = false;
-      cajaOpciones.innerHTML = '';
-      const textoOp = await op.aplicar();
-      narrar(textoOp);
+      cajaOpciones.innerHTML = '<p class="ayuda">La arena se mueve…</p>';
+      try {
+        const textoOp = await op.aplicar();
+        if (estado.fin) return;
+        narrar(textoOp);
+      } catch (e) {
+        narrar('<span class="linea-muerte">La arena no te deja ni reaccionar, pero sigues en pie.</span>');
+      } finally {
+        estado.resolviendoEvento = false;
+        estado.cornucopiaAbierta = false;
+        $('#caja-acontecimiento').hidden = true;
+      }
       estado.ultimaAccion = { tipo: 'riesgo', bien: true };
       estado.turno += 1;
       actualizarHUD();
       pintarTributosHUD();
       pintarMapa();
       await dormir(500);
+      if (estado.fin) return;
       if (estado.vida <= 0) { terminarArena('muerto'); return; }
       const vivos = estado.tributos.filter((t) => t.vivo);
       if (vivos.length <= 1 || (vivos.length === 2 && mismoDistrito(vivos))) {
@@ -4020,6 +4519,11 @@ function reabrirCornucopia() {
 
 function fiestaCapitolio() {
   estado.fiestaAbierta = true;
+  estado.eventoHecho = true;
+  if (!estado.eventosUsados) estado.eventosUsados = [];
+  estado.eventosUsados.push('fiesta');
+  pintarCabeceraEvento('🎬', 'La Fiesta del Capitolio',
+    'Durante una hora, los patrocinadores pueden enviar lo que quieran a quien quieran. Las cámaras buscan espectáculo.');
   cajaOpciones.innerHTML = '';
   limpiarNarracion();
   narrar('<em>El Capitolio convoca la Fiesta.</em> Durante una hora, los patrocinadores pueden enviar lo que quieran a quien quieran. Las cámaras buscan a alguien que dé espectáculo.', 'escena-texto');
@@ -4073,16 +4577,29 @@ function fiestaCapitolio() {
     btn.innerHTML = `<span class="opcion__letra">${['A', 'B', 'C'][i]}</span>
       <span>${escapar(op.texto)}<span class="opcion__efecto">${escapar(op.efecto)}</span></span>`;
     btn.addEventListener('click', async () => {
-      if (!estado.fiestaAbierta) return;
+      // Un solo clic por evento: si ya se está resolviendo, se ignora
+      if (!estado.fiestaAbierta || estado.resolviendoEvento) return;
+      estado.resolviendoEvento = true;
       estado.fiestaAbierta = false;
-      cajaOpciones.innerHTML = '';
-      const textoOp = await op.aplicar();
-      narrar(textoOp);
+      cajaOpciones.innerHTML = '<p class="ayuda">El Capitolio decide…</p>';
+      try {
+        const textoOp = await op.aplicar();
+        if (estado.fin) return;
+        narrar(textoOp);
+      } catch (e) {
+        narrar('<span class="linea-muerte">Se corta la señal y el Capitolio pasa de ti, pero sigues vivo.</span>');
+      } finally {
+        estado.resolviendoEvento = false;
+        estado.fiestaAbierta = false;
+        $('#caja-acontecimiento').hidden = true;
+      }
       estado.turno += 1;
       actualizarHUD();
       pintarTributosHUD();
       pintarMapa();
       await dormir(500);
+      if (estado.fin) return;
+      if (estado.vida <= 0) { terminarArena('muerto'); return; }
       await ofrecerEscenaSiguiente();
     });
     cajaOpciones.appendChild(btn);
@@ -4168,14 +4685,27 @@ async function elegirOpcion(op) {
   const stat = estado.stats[statClave] || 5;
 
   // Cansancio y cordura alteran la puntería de cada decisión
-  const penalCansancio = (estado.cansancio / 100) * 0.22;
-  const penalCordura = ((100 - estado.cordura) / 100) * 0.18;
-  const exito = clamp(0.30 + stat * 0.045 + sesgo * 0.035 + (Math.random() * 0.3 - 0.15) - penalCansancio - penalCordura, 0.05, 0.95);
+  const penalCansancio = (estado.cansancio / 100) * 0.24;
+  const penalCordura = ((100 - estado.cordura) / 100) * 0.20;
+  // La estadística clave manda: de 1 a 10 mueve la tirada más de un 40 %
+  const presion = penalizacionPresion(op.tipo);
+  const exito = clamp(0.18 + stat * 0.075 + sesgo * 0.05 + (Math.random() * 0.28 - 0.14)
+    - penalCansancio - penalCordura - presion, 0.04, 0.96);
   let saleBien = Math.random() < exito;
 
   if (!saleBien) probabilidadMuerte();
 
   const resultado = resolverOpcion(op, saleBien, ultimoResultado);
+  // Con poca gente en la arena, se nota antes de elegir y se dice al resolver
+  if (presion >= 0.5 && !saleBien) {
+    narrar('<span class="eco-antes">Queda tan poca gente que todos pelean como si fuera el último día.</span>', 'eco');
+  }
+  // La estadística deja su huella en el texto de lo que acaba de pasar
+  if (stat >= 8 && saleBien) {
+    narrar(`<span class="eco-antes">Tu ${NOMBRE_STAT[statClave]} (${stat}) hace la diferencia.</span>`, 'eco');
+  } else if (stat <= 3 && !saleBien) {
+    narrar(`<span class="eco-antes">Con ${NOMBRE_STAT[statClave]} ${stat}, esto te venía grande.</span>`, 'eco');
+  }
   estado.historial.push({ tipo: op.tipo, texto: op.texto, bien: saleBien });
   estado.turno += 1;
   estado.ultimaAccion = { tipo: op.tipo, bien: saleBien };
@@ -4261,17 +4791,12 @@ async function elegirOpcion(op) {
     return;
   }
 
-  // Eventos que llegan a mitad de los Juegos
-  if (!estado.cornucopiaAbierta && !estado.fiestaAbierta) {
-    if (!estado.cornucopiaAbierta && estado.turno >= estado.cornucopiaTurno) {
-      reabrirCornucopia();
-      return;
-    }
-    if (estado.turno >= estado.fiestaTurno) {
-      fiestaCapitolio();
-      return;
-    }
-  }
+  // Eventos que llegan a mitad de los Juegos: cada uno, una sola vez por arena
+  if (!estado.eventoHecho && servirEventoPendiente()) return;
+  estado.eventoHecho = false;
+
+  // Los que quedan han sobrevivido a todo: se han vuelto más duros
+  reforzarSupervivientes();
 
   await dormir(360);
   await ofrecerEscenaSiguiente();
@@ -4604,12 +5129,33 @@ function ajustarPatrocinio(delta) {
 
 async function lanzarAcontecimiento() {
   if (estado.fin) return;
+  // Si hay un minijuego en marcha (cazar, vendarse…), el acontecimiento espera su turno
+  let esperas = 0;
+  while (mj && mj.activo && esperas < 120) {
+    await dormir(250);
+    esperas += 1;
+    if (estado.fin) return;
+  }
   estado.acontecimientoPendiente = false;
+  // Un acontecimiento por turno: si este turno ya hubo uno, no se sirve otro
+  if (estado.turnoAcontecimiento === estado.turno) return;
+  estado.turnoAcontecimiento = estado.turno;
   const arena = ARENAS[estado.arena];
   const ids = arena.eventos;
-  // Nunca el mismo dos veces seguidas: se elige entre los que no acaban de pasar
-  const candidatos = ids.filter((x) => x !== estado.ultimoEvento);
-  const idEvento = elegir(candidatos.length ? candidatos : ids);
+  // Nunca se repite un acontecimiento hasta haber visto todos los de esa arena
+  if (!Array.isArray(estado.eventosVistos)) estado.eventosVistos = [];
+  let candidatos = ids.filter((x) => !estado.eventosVistos.includes(x));
+  // Se descarta además el de este turno y el de antes, para no encadenar el mismo
+  candidatos = candidatos.filter((x) => x !== estado.ultimoEvento);
+  if (!candidatos.length) {
+    // Ya se han visto todos: se reabre el ciclo, recordando solo el último
+    estado.eventosVistos = ids.filter((x) => x !== estado.ultimoEvento);
+    candidatos = ids.filter((x) => !estado.eventosVistos.includes(x));
+  }
+  if (!candidatos.length) candidatos = ids.filter((x) => x !== estado.ultimoEvento);
+  if (!candidatos.length) candidatos = ids;
+  const idEvento = elegir(candidatos);
+  if (!estado.eventosVistos.includes(idEvento)) estado.eventosVistos.push(idEvento);
   let ac = ACONTECIMIENTOS.find((a) => a.id === idEvento) || ACONTECIMIENTOS[0];
   if (estado.ultimoEvento && ac.id === estado.ultimoEvento) {
     const otros = ACONTECIMIENTOS.filter((a) => a.id !== estado.ultimoEvento);
@@ -4690,9 +5236,37 @@ async function lanzarAcontecimiento() {
 
 /* ---------- HUD ---------- */
 
+/* Traduce las estadísticas a algo que se entienda en la arena */
+const EFECTO_STAT = {
+  fuerza: (v) => v >= 8 ? 'rematas de un golpe' : v <= 3 ? 'no levantas a nadie' : 'aguantas un cuerpo a cuerpo',
+  resistencia: (v) => v >= 8 ? 'el cansancio te cuesta la mitad' : v <= 3 ? 'te agotas en dos carreras' : 'aguantas el ritmo normal',
+  inteligencia: (v) => v >= 8 ? 'trampas y pistas casi seguras' : v <= 3 ? 'las trampas te salen torcidas' : 'mañas de andar por casa',
+  supervivencia: (v) => v >= 8 ? 'curas y cazas de verdad' : v <= 3 ? 'curarte es una lotería' : 'sobrevives con lo justo',
+  agilidad: (v) => v >= 8 ? 'nadie te alcanza' : v <= 3 ? 'huyes mal y te ven' : 'te mueves sin ruido',
+  combate: (v) => v >= 8 ? 'peleas con ventaja clara' : v <= 3 ? 'el combate no es lo tuyo' : 'peleas parejo',
+  patrocinadores: (v) => v >= 8 ? 'los envíos llegan' : v <= 3 ? 'nadie te manda nada' : 'alguien te mira'
+};
+
+function pintarFichaStats() {
+  const caja = $('#ficha-stats');
+  if (!caja) return;
+  caja.innerHTML = '';
+  Object.keys(EFECTO_STAT).forEach((k) => {
+    const v = estado.stats[k] || 5;
+    const fila = document.createElement('div');
+    fila.className = `ficha-stat ${v >= 8 ? 'alta' : v <= 3 ? 'baja' : ''}`;
+    fila.innerHTML = `<span class="ficha-stat__nombre">${NOMBRE_STAT[k]}</span>
+      <span class="ficha-stat__barra"><i style="width:${v * 10}%"></i></span>
+      <span class="ficha-stat__valor">${v}</span>
+      <span class="ficha-stat__efecto">${EFECTO_STAT[k](v)}</span>`;
+    caja.appendChild(fila);
+  });
+}
+
 function actualizarHUD() {
   const yo = estado.yo;
   if (!yo) return;
+  pintarFichaStats();
   $('#hud-avatar').textContent = estado.nombre.charAt(0).toUpperCase();
   $('#hud-nombre').textContent = estado.nombre;
   $('#hud-distrito').textContent = `Distrito ${yo.distrito} · ${ROLES[estado.rol].nombre} · Ed. ${estado.edicion}`;
@@ -5612,6 +6186,7 @@ function reiniciarPartida() {
 /* Vuelve a la ceremonia de la cosecha sin recargar: la partida anterior queda limpia */
 function volverAlInicio() {
   guardarConfig();
+  borrarEstadoGuardado();
 
   // 1. Estado de la partida a cero
   const cfg = leerConfig() || {};
@@ -5650,12 +6225,19 @@ function volverAlInicio() {
   estado.proximoAcontecimiento = 2;
   estado.escenaActual = null;
   historialEscenas.length = 0;
+  opcionesUsadas.clear();
+  rellenoUsados = { lago: [], reloj: [] };
 
   // 2. Tributos nuevos (24 nombres limpios, sin heridas ni alianzas)
   estado.tributos = crearTributos();
   estado.yo = estado.tributos.find((t) => t.yo) || estado.yo;
 
   // 3. El botón de la arena vuelve a estar disponible
+  estado.eventosUsados = [];
+  estado.eventosVistos = [];
+  estado.turnoAcontecimiento = -1;
+  estado.eventoHecho = false;
+  estado.resolviendoEvento = false;
   const btnJugar = $('#btn-entrar-juego');
   btnJugar.disabled = false;
   btnJugar.innerHTML = '<span>Que empiecen los Juegos</span>';
