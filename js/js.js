@@ -2128,6 +2128,57 @@ async function momentoDecisivo(tipo, titulo) {
   return ganado;
 }
 
+/* ============================================================
+   MARCO COMÚN DE LOS MINIJUEGOS
+   Cada minijuego recibe un contexto con el lienzo, el resultado
+   y utilidades para dibujar su marcador y terminar con puntuación.
+   ============================================================ */
+
+function mjContexto(lienzo, terminar) {
+  const ancho = lienzo.clientWidth || 520;
+  const alto = lienzo.clientHeight || 210;
+
+  // Marcador de puntos y vidas/combo, arriba a la izquierda
+  const marcador = document.createElement('div');
+  marcador.className = 'mj-marcador';
+  const puntos = document.createElement('span');
+  puntos.className = 'mj-marcador__puntos';
+  puntos.textContent = '0';
+  const extra = document.createElement('span');
+  extra.className = 'mj-marcador__extra';
+  marcador.append(puntos, extra);
+  lienzo.appendChild(marcador);
+
+  const ctx = {
+    lienzo,
+    ancho,
+    alto,
+    puntos: 0,
+    sumar: (n, etiqueta) => {
+      ctx.puntos += n;
+      puntos.textContent = ctx.puntos;
+      if (etiqueta) {
+        extra.textContent = etiqueta;
+        setTimeout(() => { if (extra.textContent === etiqueta) extra.textContent = ''; }, 700);
+      }
+      marcador.classList.add('pulso');
+      setTimeout(() => marcador.classList.remove('pulso'), 160);
+    },
+    setExtra: (txt) => { extra.textContent = txt; },
+    acabar: (exito, mensaje) => terminar(exito, `${mensaje} Puntos: ${ctx.puntos}`),
+    // Crea un elemento con clase y posición
+    pieza: (clase, x, y) => {
+      const el = document.createElement('div');
+      el.className = clase;
+      if (x !== undefined) el.style.left = `${x}px`;
+      if (y !== undefined) el.style.top = `${y}px`;
+      lienzo.appendChild(el);
+      return el;
+    }
+  };
+  return ctx;
+}
+
 /* --- 1. Pulso de fuerza --- */
 function mjPulso(lienzo, terminar) {
   const barra = document.createElement('div');
@@ -2729,7 +2780,373 @@ function mjEquilibrio(lienzo, terminar) {
   };
 }
 
+/* --- 13. Niebla venenosa: busca aire limpio por la zona con menos veneno --- */
+function mjNiebla(lienzo, terminar) {
+  const ctx = mjContexto(lienzo, terminar);
+  const rejilla = document.createElement('div');
+  rejilla.className = 'mj-rejilla';
+  rejilla.style.gridTemplateColumns = 'repeat(5, 1fr)';
+  lienzo.appendChild(rejilla);
+
+  // Cada celda tiene un nivel de veneno (0-100). Hay que llegar a la salida viva.
+  const celdas = [];
+  const filas = 3, cols = 5;
+  for (let f = 0; f < filas; f++) {
+    for (let c = 0; c < cols; c++) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'mj-celda-niebla';
+      const veneno = Math.round(Math.random() * 100);
+      b.dataset.veneno = veneno;
+      b.textContent = veneno > 70 ? '☠' : veneno > 40 ? '~' : '·';
+      rejilla.appendChild(b);
+      celdas.push(b);
+    }
+  }
+  // La salida está en la última celda, siempre con algo de veneno
+  celdas[celdas.length - 1].textContent = '🚪';
+
+  let vida = 100;
+  let fila = 0;
+  ctx.setExtra(`Aire: ${vida}%`);
+  const colorear = (b) => {
+    const v = Number(b.dataset.veneno);
+    b.classList.add(v > 70 ? 'mala' : v > 40 ? 'media' : 'buena');
+  };
+
+  rejilla.addEventListener('click', (ev) => {
+    const b = ev.target.closest('.mj-celda-niebla');
+    if (!b || b.classList.contains('mala') && b.dataset.visitada === '1') return;
+    const indice = celdas.indexOf(b);
+    if (Math.floor(indice / cols) < fila) return; // no se retrocede
+    const v = Number(b.dataset.veneno);
+    b.dataset.visitada = '1';
+    colorear(b);
+    vida -= Math.round(v / 4);
+    ctx.setExtra(`Aire: ${Math.max(0, vida)}%`);
+    ctx.sumar(10 - Math.round(v / 10));
+    if (vida <= 0) { ctx.acabar(false, 'El veneno te llena los pulmones.'); return; }
+    fila = Math.floor(indice / cols);
+    if (b.textContent === '🚪') {
+      ctx.acabar(true, vida > 60 ? 'Sales de la niebla respirando bien.' : 'Sales de la niebla, pero tosiendo sangre.');
+    }
+  });
+}
+
+/* --- 14. Avispas letales: mátalas antes de que te piquen tres veces --- */
+function mjAvispas(lienzo, terminar) {
+  const ctx = mjContexto(lienzo, terminar);
+  const avispas = [];
+  let picaduras = 0;
+  let ultimo = performance.now();
+
+  ctx.setExtra('Picaduras: 0/3');
+  for (let i = 0; i < 7; i++) {
+    const el = ctx.pieza('mj-avispa', Math.random() * (ctx.ancho - 30), Math.random() * (ctx.alto - 30));
+    el.textContent = '🐝';
+    avispas.push({ el, x: Math.random() * (ctx.ancho - 30), y: Math.random() * (ctx.alto - 30),
+      vx: (Math.random() - 0.5) * 2.4, vy: (Math.random() - 0.5) * 2.4, viva: true });
+  }
+
+  lienzo.addEventListener('pointerdown', (ev) => {
+    const r = lienzo.getBoundingClientRect();
+    const px = ev.clientX - r.left, py = ev.clientY - r.top;
+    avispas.forEach((a) => {
+      if (!a.viva) return;
+      if (Math.hypot(a.x + 14 - px, a.y + 14 - py) < 22) {
+        a.viva = false;
+        a.el.classList.add('muerta');
+        ctx.sumar(15, '¡Una menos!');
+      }
+    });
+    if (avispas.every((a) => !a.viva)) ctx.acabar(true, 'El enjambre cae entero.');
+  });
+
+  const animar = (t) => {
+    const dt = Math.min(40, t - ultimo) / 16;
+    ultimo = t;
+    avispas.forEach((a) => {
+      if (!a.viva) return;
+      a.x += a.vx * dt; a.y += a.vy * dt;
+      if (a.x < 0 || a.x > ctx.ancho - 28) a.vx *= -1;
+      if (a.y < 0 || a.y > ctx.alto - 28) a.vy *= -1;
+      a.x = clamp(a.x, 0, ctx.ancho - 28);
+      a.y = clamp(a.y, 0, ctx.alto - 28);
+      a.el.style.left = `${a.x}px`;
+      a.el.style.top = `${a.y}px`;
+    });
+    // Una avispa te alcanza cuando lleva un rato sin que la mates
+    if (Math.random() < 0.012 * dt) {
+      picaduras += 1;
+      ctx.setExtra(`Picaduras: ${picaduras}/3`);
+      if (picaduras >= 3) { ctx.acabar(false, 'Te pican tres veces y se te hincha la garganta.'); return; }
+    }
+    mj.raf = requestAnimationFrame(animar);
+  };
+  mj.raf = requestAnimationFrame(animar);
+}
+
+/* --- 15. Bestias mutantes: elige el camino y escóndete a tiempo --- */
+function mjBestias(lienzo, terminar) {
+  const ctx = mjContexto(lienzo, terminar);
+  const escenas = 3;
+  let ronda = 0;
+
+  const montarRonda = () => {
+    lienzo.querySelectorAll('.mj-opcion-bestia, .mj-texto-bestia').forEach((n) => n.remove());
+    const texto = document.createElement('div');
+    texto.className = 'mj-texto-bestia';
+    texto.textContent = [
+      'Los mutos rodean el claro. ¿Por dónde sales?',
+      'Uno te ha olido. ¿Qué haces?',
+      'Quedan dos, y uno cojea. Última decisión.'
+    ][ronda];
+    lienzo.appendChild(texto);
+
+    const opciones = barajar([
+      { t: 'Subir al árbol más alto', bien: true },
+      { t: 'Cruzar el río nadando', bien: ronda > 0 },
+      { t: 'Correr en línea recta', bien: false },
+      { t: 'Quedarte quieto y aguantar la respiración', bien: ronda === 2 }
+    ]);
+    const caja = document.createElement('div');
+    caja.className = 'mj-opciones-bestia';
+    opciones.forEach((o) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'mj-opcion-bestia';
+      b.textContent = o.t;
+      b.addEventListener('click', () => {
+        if (o.bien) {
+          ctx.sumar(20, 'Bien pensado');
+          ronda += 1;
+          if (ronda >= escenas) ctx.acabar(true, 'Las bestias se quedan sin presa.');
+          else montarRonda();
+        } else {
+          ctx.acabar(false, 'La manada te alcanza en tres zancadas.');
+        }
+      });
+      caja.appendChild(b);
+    });
+    lienzo.appendChild(caja);
+  };
+  montarRonda();
+}
+
+/* --- 16. Terremoto: mantén el equilibrio mientras la pantalla se mueve --- */
+function mjTerremoto(lienzo, terminar) {
+  const ctx = mjContexto(lienzo, terminar);
+  const zona = ctx.pieza('mj-zona-segura');
+  const jugador = ctx.pieza('mj-jugador-terremoto');
+  const suelo = ctx.pieza('mj-suelo');
+  suelo.style.bottom = '10px';
+
+  let x = ctx.ancho / 2;
+  let y = ctx.alto - 60;
+  let sacudida = 0;
+  let caidas = 0;
+  let ultimo = performance.now();
+  ctx.setExtra('Caídas: 0/3');
+
+  const mover = (ev) => {
+    const r = lienzo.getBoundingClientRect();
+    x = clamp((ev.clientX - r.left) * (ctx.ancho / r.width), 10, ctx.ancho - 26);
+    jugador.style.left = `${x}px`;
+  };
+  lienzo.addEventListener('pointermove', mover);
+  lienzo.addEventListener('pointerdown', mover);
+
+  const animar = (t) => {
+    const dt = Math.min(40, t - ultimo) / 16;
+    ultimo = t;
+    sacudida += 0.06 * dt;
+    const temblor = Math.sin(sacudida * 3) * (6 + Math.sin(sacudida) * 4);
+    lienzo.style.transform = `translateX(${temblor * 0.4}px)`;
+
+    // La zona segura se mueve: hay que seguirla
+    const zx = (Math.sin(sacudida * 0.9) * 0.5 + 0.5) * (ctx.ancho - 90) + 10;
+    zona.style.left = `${zx}px`;
+    const dentro = x + 8 > zx && x < zx + 80;
+
+    if (dentro) {
+      ctx.sumar(0.15);
+      caidas = Math.max(0, caidas - 0.01 * dt);
+    } else {
+      caidas += 0.012 * dt;
+    }
+    ctx.setExtra(`Caídas: ${caidas > 2 ? 3 : Math.floor(caidas)}/3`);
+    if (caidas > 2.2) { ctx.acabar(false, 'El suelo se abre y caes.'); return; }
+    mj.raf = requestAnimationFrame(animar);
+  };
+  mj.raf = requestAnimationFrame(animar);
+  mj.temporizadores.push(setTimeout(() => {
+    ctx.acabar(true, 'El temblor para y sigues de pie.');
+  }, 6500));
+
+  mj.limpiar = () => {
+    lienzo.removeEventListener('pointermove', mover);
+    lienzo.removeEventListener('pointerdown', mover);
+    lienzo.style.transform = '';
+  };
+}
+
+/* --- 17. Inundación: sube a la plataforma más alta antes de que llegue el agua --- */
+function mjInundacion(lienzo, terminar) {
+  const ctx = mjContexto(lienzo, terminar);
+  const agua = ctx.pieza('mj-agua');
+  const plataformas = [];
+  const niveles = [ctx.alto - 60, ctx.alto - 110, ctx.alto - 160];
+  niveles.forEach((y, i) => {
+    const p = ctx.pieza('mj-plataforma', 40 + i * ((ctx.ancho - 140) / 2), y);
+    p.dataset.nivel = i;
+    p.addEventListener('click', () => {
+      if (p.classList.contains('usada')) return;
+      p.classList.add('usada');
+      ctx.sumar(20 + i * 15, `Nivel ${i + 1}`);
+      if (i === niveles.length - 1) ctx.acabar(true, 'El agua no llega hasta aquí arriba.');
+    });
+    plataformas.push(p);
+  });
+  // El agua sube: si llega a la plataforma en la que estás, se acaba
+  let altura = ctx.alto;
+  let ultimo = performance.now();
+  const animar = (t) => {
+    const dt = Math.min(40, t - ultimo) / 16;
+    ultimo = t;
+    altura -= 0.55 * dt;
+    agua.style.top = `${altura}px`;
+    if (altura < niveles[1] && !plataformas[2].classList.contains('usada')) {
+      ctx.acabar(false, 'El agua te arrastra antes de subir.');
+      return;
+    }
+    mj.raf = requestAnimationFrame(animar);
+  };
+  mj.raf = requestAnimationFrame(animar);
+}
+
+/* --- 18. Tormenta eléctrica: toca los pararrayos a tiempo --- */
+function mjTormenta(lienzo, terminar) {
+  const ctx = mjContexto(lienzo, terminar);
+  let tocados = 0;
+  let total = 5;
+  let fallos = 0;
+  ctx.setExtra('Rayos: 0/5');
+
+  const nuevoRayo = () => {
+    if (tocados >= total) { ctx.acabar(true, 'Los pararrayos aguantan.'); return; }
+    const r = ctx.pieza('mj-pararrayos', Math.random() * (ctx.ancho - 60) + 20, Math.random() * (ctx.alto - 70) + 20);
+    r.textContent = '⚡';
+    let vivo = true;
+    const quitar = () => { if (vivo) { vivo = false; r.remove(); } };
+    r.addEventListener('click', () => {
+      quitar();
+      tocados += 1;
+      ctx.sumar(20, '¡Descarga!');
+      ctx.setExtra(`Rayos: ${tocados}/5`);
+      nuevoRayo();
+    });
+    mj.temporizadores.push(setTimeout(() => {
+      if (!vivo) return;
+      quitar();
+      fallos += 1;
+      if (fallos >= 3) { ctx.acabar(false, 'Te alcanzan tres rayos.'); return; }
+      ctx.setExtra(`Fallos: ${fallos}/3`);
+      nuevoRayo();
+    }, 1400 - estado.stats.agilidad * 40));
+  };
+  nuevoRayo();
+}
+
+/* --- 19. Lluvia de sangre: corre de zona en zona sin quedarte quieto --- */
+function mjSangre(lienzo, terminar) {
+  const ctx = mjContexto(lienzo, terminar);
+  const zonas = [];
+  for (let i = 0; i < 6; i++) {
+    const z = ctx.pieza('mj-zona-carrera',
+      20 + Math.random() * (ctx.ancho - 90),
+      20 + Math.random() * (ctx.alto - 90));
+    z.addEventListener('click', () => {
+      if (z.dataset.usada === '1') return;
+      z.dataset.usada = '1';
+      z.classList.add('usada');
+      ctx.sumar(15);
+      if (zonas.filter((x) => x.dataset.usada === '1').length === zonas.length) {
+        ctx.acabar(true, 'Has recorrido toda la zona sin parar.');
+      }
+    });
+    zonas.push(z);
+  }
+  // Cada segundo, la lluvia se cierra un poco más: si no te mueves, te mancha
+  let manchas = 0;
+  let ultimoClic = performance.now();
+  ctx.setExtra('Manchas: 0/4');
+  mj.temporizadores.push(setInterval(() => {
+    if (performance.now() - ultimoClic > 1200) {
+      manchas += 1;
+      ctx.setExtra(`Manchas: ${manchas}/4`);
+      if (manchas >= 4) ctx.acabar(false, 'La lluvia te cubre y no ves nada.');
+    }
+  }, 1200));
+  lienzo.addEventListener('pointerdown', () => { ultimoClic = performance.now(); });
+}
+
 const MINIJUEGOS = {
+  niebla: {
+    etiqueta: 'MINIJUEGO · AIRE',
+    titulo: 'Buscar aire limpio',
+    instrucciones: 'Pulsa celdas para avanzar por la niebla. Las celdas oscuras (☠) tienen mucho veneno: te quitan aire. Llega a la puerta 🚪 antes de quedarte sin aire.',
+    segundos: 14,
+    fallo: 'El veneno te llena los pulmones.',
+    montar: mjNiebla
+  },
+  avispas: {
+    etiqueta: 'MINIJUEGO · ENJAMBRE',
+    titulo: 'Matar el enjambre',
+    instrucciones: 'Pulsa las avispas para matarlas antes de que te piquen tres veces. Cuantas más mates, más puntos.',
+    segundos: 12,
+    fallo: 'El enjambre te alcanza.',
+    montar: mjAvispas
+  },
+  bestias: {
+    etiqueta: 'MINIJUEGO · INSTINTO',
+    titulo: 'Escapar de la manada',
+    instrucciones: 'Elige la salida correcta en cada ronda. Solo una opción te mantiene vivo; las demás te entregan a los mutos.',
+    segundos: 12,
+    fallo: 'La manada te alcanza.',
+    montar: mjBestias
+  },
+  terremoto: {
+    etiqueta: 'MINIJUEGO · EQUILIBRIO',
+    titulo: 'Aguantar el temblor',
+    instrucciones: 'Mueve el ratón o el dedo para mantenerte dentro de la zona dorada mientras el suelo se mueve. Si te salen tres caídas, el suelo te traga.',
+    segundos: 9,
+    fallo: 'El suelo se abre bajo tus pies.',
+    montar: mjTerremoto
+  },
+  inundacion: {
+    etiqueta: 'MINIJUEGO · ESCALADA',
+    titulo: 'Subir antes del agua',
+    instrucciones: 'Pulsa las plataformas en orden, de la más baja a la más alta, antes de que el agua te alcance.',
+    segundos: 9,
+    fallo: 'El agua te arrastra.',
+    montar: mjInundacion
+  },
+  tormenta: {
+    etiqueta: 'MINIJUEGO · REFLEJOS',
+    titulo: 'Descargar los rayos',
+    instrucciones: 'Pulsa cada rayo ⚡ antes de que caiga. Si se te escapan tres, te alcanza la corriente.',
+    segundos: 12,
+    fallo: 'Te alcanza un rayo.',
+    montar: mjTormenta
+  },
+  sangre: {
+    etiqueta: 'MINIJUEGO · AGUANTE',
+    titulo: 'Lluvia de sangre',
+    instrucciones: 'Pulsa todas las zonas de la arena sin quedarte quieto más de un segundo. Si te paran cuatro veces, la lluvia te cubre.',
+    segundos: 12,
+    fallo: 'La lluvia te cubre.',
+    montar: mjSangre
+  },
   esquivar: {
     etiqueta: 'MINIJUEGO · SUPERVIVENCIA',
     titulo: 'Esquivar la flecha',
@@ -3922,9 +4339,9 @@ async function lanzarAcontecimiento() {
 
   // Minijuego del acontecimiento: el resultado manda sobre la suerte
   const mjEvento = {
-    niebla: 'esquivar', avispas: 'esquivar', bestias: 'esquivar',
-    terremoto: 'equilibrio', inundacion: 'equilibrio',
-    tormenta: 'precision', sangre: 'carrera'
+    niebla: 'niebla', avispas: 'avispas', bestias: 'bestias',
+    terremoto: 'terremoto', inundacion: 'inundacion',
+    tormenta: 'tormenta', sangre: 'sangre'
   }[ac.id];
   let resultadoMinijuego = null;
   if (mjEvento && !estado.fin) {

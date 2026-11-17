@@ -1936,3 +1936,186 @@ li.vacio { color: #6a645c; font-style: italic; border-left-color: transparent; b
   background: #fff;
   box-shadow: 0 0 12px rgba(255, 255, 255, .9);
 }
+
+
+/* ====================== MINIJUEGOS · DETALLE ====================== */
+.mj-marcador {
+  position: absolute;
+  left: 10px;
+  top: 8px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 10px;
+  border-radius: 100px;
+  background: rgba(0, 0, 0, .45);
+  border: 1px solid rgba(216, 178, 90, .35);
+  transition: transform .16s;
+}
+
+.mj-marcador.pulso { transform: scale(1.08); }
+
+.mj-marcador__puntos {
+  font-family: var(--fuente-titulo);
+  font-size: 16px;
+  color: var(--oro);
+}
+
+.mj-marcador__extra {
+  font-size: 11px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--texto-tenue);
+}
+
+/* Niebla */
+.mj-rejilla {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  gap: 6px;
+  padding: 40px 12px 12px;
+}
+
+.mj-celda-niebla {
+  border-radius: var(--radio);
+  border: 1px solid rgba(255, 255, 255, .12);
+  background: rgba(255, 255, 255, .05);
+  color: rgba(255, 255, 255, .55);
+  font-size: 16px;
+  cursor: pointer;
+  transition: .16s;
+}
+
+.mj-celda-niebla.buena { background: rgba(127, 209, 138, .3); border-color: #7fd18a; }
+.mj-celda-niebla.media { background: rgba(216, 178, 90, .25); border-color: var(--oro); }
+.mj-celda-niebla.mala { background: rgba(226, 112, 95, .35); border-color: #e2705f; }
+.mj-celda-niebla[data-veneno] { cursor: pointer; }
+
+/* Avispas */
+.mj-avispa {
+  position: absolute;
+  font-size: 22px;
+  cursor: crosshair;
+  transition: transform .15s, opacity .15s;
+  filter: drop-shadow(0 0 6px rgba(255, 210, 90, .5));
+}
+
+.mj-avispa.muerta { transform: scale(.4) rotate(40deg); opacity: 0; }
+
+/* Bestias */
+.mj-texto-bestia {
+  position: absolute;
+  top: 34px;
+  left: 12px;
+  right: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--texto);
+  text-align: center;
+}
+
+.mj-opciones-bestia {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.mj-opcion-bestia {
+  padding: 10px;
+  font-family: var(--fuente-texto);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--texto-tenue);
+  background: rgba(255, 255, 255, .05);
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: var(--radio);
+  cursor: pointer;
+  transition: .16s;
+}
+
+.mj-opcion-bestia:hover { color: var(--texto); border-color: var(--borde-oro); background: rgba(216, 178, 90, .12); }
+
+/* Terremoto */
+.mj-zona-segura {
+  position: absolute;
+  bottom: 12px;
+  width: 80px;
+  height: 54px;
+  border-radius: var(--radio);
+  background: rgba(127, 209, 138, .22);
+  border: 1px solid rgba(127, 209, 138, .8);
+}
+
+.mj-jugador-terremoto {
+  position: absolute;
+  bottom: 26px;
+  width: 18px;
+  height: 26px;
+  border-radius: 6px;
+  background: var(--oro);
+  box-shadow: 0 0 12px rgba(216, 178, 90, .7);
+}
+
+.mj-suelo {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: rgba(255, 255, 255, .18);
+}
+
+/* Inundación */
+.mj-agua {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 60px;
+  background: linear-gradient(180deg, rgba(90, 182, 224, .55), rgba(47, 111, 158, .85));
+  border-top: 2px solid rgba(160, 220, 255, .7);
+  transition: top .05s linear;
+}
+
+.mj-plataforma {
+  position: absolute;
+  width: 84px;
+  height: 12px;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #8a7a5a, #4a4234);
+  cursor: pointer;
+  transition: .16s;
+}
+
+.mj-plataforma.usada { background: linear-gradient(180deg, var(--oro), #8a6f2c); box-shadow: 0 0 12px rgba(216, 178, 90, .6); }
+
+/* Tormenta */
+.mj-pararrayos {
+  position: absolute;
+  font-size: 26px;
+  cursor: pointer;
+  animation: aparecer .12s ease;
+  filter: drop-shadow(0 0 10px rgba(255, 235, 120, .9));
+}
+
+/* Lluvia de sangre */
+.mj-zona-carrera {
+  position: absolute;
+  width: 62px;
+  height: 44px;
+  border-radius: var(--radio);
+  border: 1px dashed rgba(226, 112, 95, .7);
+  background: rgba(226, 112, 95, .1);
+  cursor: pointer;
+  transition: .16s;
+}
+
+.mj-zona-carrera.usada {
+  background: rgba(216, 178, 90, .25);
+  border: 1px solid var(--oro);
+}
