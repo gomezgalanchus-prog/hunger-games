@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JDH · Modo Historia</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Barlow+Condensed:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <!-- ====================== CAPA DECORATIVA ====================== -->
+  <div class="fondo">
+    <div class="fondo__bruma"></div>
+    <div class="fondo__rejilla"></div>
+    <div class="fondo__vineta"></div>
+  </div>
+
+  <!-- ====================== CABECERA ====================== -->
+  <header class="cabecera">
+    <div class="cabecera__marca">
+      <span class="cabecera__sigilo">✦</span>
+      <div>
+        <h1 class="cabecera__titulo">Juegos del Hambre</h1>
+        <p class="cabecera__sub" id="cabecera-sub">Modo Historia · Panem · Edición 74</p>
+      </div>
+    </div>
+    <nav class="cabecera__progreso" id="progreso" aria-label="Progreso">
+      <span class="paso" data-paso="inicio">I. Tributo</span>
+      <span class="paso" data-paso="test">II. Rol</span>
+      <span class="paso" data-paso="mapa">III. Arena</span>
+      <span class="paso" data-paso="juego">IV. Juegos</span>
+    </nav>
+  </header>
+
+  <main id="app" class="app">
+
+    <!-- ============================================================ -->
+    <!-- PANTALLA 1 · PRESENTACIÓN / TRIBUTO                          -->
+    <!-- ============================================================ -->
+    <section class="pantalla activa" id="pantalla-inicio">
+      <div class="panel panel--inicio">
+        <p class="etiqueta">Ceremonia de la Cosecha</p>
+        <h2 class="titulo-pantalla">¿Quién serás en la arena?</h2>
+        <p class="texto-intro">
+          Escribe el nombre de tu tributo, elige tu distrito y preséntate ante Panem.
+          Solo dos tributos de cada distrito, veinticuatro en total, y una única salida.
+        </p>
+
+        <form id="form-tributo" class="formulario" autocomplete="off">
+          <div class="campo">
+            <label for="input-nombre">Nombre del tributo</label>
+            <input id="input-nombre" type="text" maxlength="18" placeholder="Ej.: Katniss, Cato, Rue…" required>
+            <p class="ayuda" id="ayuda-nombre">De 2 a 18 caracteres.</p>
+            <p class="ayuda ayuda--recuperada" id="aviso-config" hidden></p>
+          </div>
+
+          <div class="campo">
+            <label>Distrito</label>
+            <div class="distritos" id="lista-distritos" role="radiogroup" aria-label="Distrito"></div>
+            <p class="ayuda" id="ayuda-distrito">Cada distrito aporta dos tributos: uno será tu compañero.</p>
+          </div>
+
+          <div class="campo campo--pres">
+            <label>Presentación de inicio <span class="contador" id="contador-pres">0 / 240</span></label>
+            <textarea id="textarea-pres" maxlength="240" rows="3"
+              placeholder="¿Cómo te presentas ante el público y los patrocinadores? (esto afecta a tu fama)"></textarea>
+            <p class="ayuda">Honestidad y amabilidad suman patrocinadores. La arrogancia los resta.</p>
+          </div>
+
+          <button type="submit" class="btn btn--principal" id="btn-comenzar">
+            <span>Comenzar</span>
+          </button>
+        </form>
+      </div>
+
+      <aside class="panel panel--lateral">
+        <h3 class="panel__titulo">Registro de Panem</h3>
+        <ul class="datos">
+          <li><span>Tributos</span><strong>24</strong></li>
+          <li><span>Distritos</span><strong>12</strong></li>
+          <li><span>Supervivientes</span><strong>1 o 2</strong></li>
+          <li><span>Arena 1</span><strong>El Lago</strong></li>
+          <li><span>Arena 2</span><strong>El Reloj</strong></li>
+        </ul>
+        <p class="nota">
+          «Que la suerte esté siempre de tu parte.»
+        </p>
+      </aside>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- PANTALLA 2 · TEST DE ROL                                     -->
+    <!-- ============================================================ -->
+    <section class="pantalla" id="pantalla-test">
+      <div class="panel panel--test">
+        <div class="test__cabecera">
+          <div>
+            <p class="etiqueta">Evaluación del Capitolio</p>
+            <h2 class="titulo-pantalla">¿Cuál es tu rol?</h2>
+          </div>
+          <div class="test__contador" id="test-contador">1 / 7</div>
+        </div>
+
+        <div class="barra"><div class="barra__relleno" id="test-barra"></div></div>
+
+        <p class="test__nota">Sin trampa: ninguna pregunta va de los Juegos. Son situaciones normales. Contesta lo que harías de verdad, no lo que suena mejor.</p>
+
+        <p class="test__pregunta" id="test-pregunta">…</p>
+        <div class="opciones" id="test-opciones"></div>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- PANTALLA 3 · RESULTADO DEL ROL                               -->
+    <!-- ============================================================ -->
+    <section class="pantalla" id="pantalla-rol">
+      <div class="panel panel--rol">
+        <p class="etiqueta">Tu rol en la arena</p>
+        <h2 class="titulo-pantalla" id="rol-nombre">—</h2>
+        <p class="rol__pecado" id="rol-pecado"></p>
+        <p class="texto-intro" id="rol-descripcion"></p>
+
+        <div class="stats" id="rol-stats"></div>
+
+        <div class="aviso" id="rol-aviso"></div>
+
+        <button class="btn btn--principal" id="btn-ir-mapa">
+          <span>Entrar en la arena</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- PANTALLA 4 · MAPA / ARENA                                    -->
+    <!-- ============================================================ -->
+    <section class="pantalla" id="pantalla-mapa">
+      <div class="panel panel--mapa">
+        <div class="mapa__cabecera">
+          <div>
+            <p class="etiqueta" id="mapa-etiqueta">La arena · Edición 74</p>
+            <h2 class="titulo-pantalla" id="mapa-titulo">El Lago</h2>
+            <p class="texto-intro" id="mapa-descripcion">Un lago enorme en el centro, una cornucopia de metal en su orilla y un bosque cerrado alrededor.</p>
+          </div>
+          <div class="reloj-mapa">
+            <span class="reloj-mapa__hora" id="mapa-hora">00:00</span>
+            <span class="reloj-mapa__sector" id="mapa-sector">Sector 1</span>
+          </div>
+        </div>
+
+        <div class="mapa" id="mapa">
+          <svg class="mapa__svg" viewBox="0 0 1000 640" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+            <defs>
+              <radialGradient id="bosqueGrad" cx="50%" cy="50%" r="60%">
+                <stop offset="0%" stop-color="#1d3326"/>
+                <stop offset="70%" stop-color="#132219"/>
+                <stop offset="100%" stop-color="#0b130e"/>
+              </radialGradient>
+              <radialGradient id="desiertoGrad" cx="50%" cy="50%" r="70%">
+                <stop offset="0%" stop-color="#4a3f2b"/>
+                <stop offset="70%" stop-color="#2e2719"/>
+                <stop offset="100%" stop-color="#1a160f"/>
+              </radialGradient>
+              <radialGradient id="lagoGrad" cx="45%" cy="40%" r="65%">
+                <stop offset="0%" stop-color="#2f6a72"/>
+                <stop offset="60%" stop-color="#1b4a52"/>
+                <stop offset="100%" stop-color="#0f2c33"/>
+              </radialGradient>
+              <radialGradient id="piedraGrad" cx="45%" cy="35%" r="70%">
+                <stop offset="0%" stop-color="#6f6a5e"/>
+                <stop offset="55%" stop-color="#4a463d"/>
+                <stop offset="100%" stop-color="#26241f"/>
+              </radialGradient>
+            </defs>
+
+            <rect x="0" y="0" width="1000" height="640" fill="url(#bosqueGrad)"/>
+
+            <!-- Bosques comunes -->
+            <g class="bosque" id="bosque">
+              <circle cx="120" cy="110" r="52"/><circle cx="190" cy="150" r="44"/>
+              <circle cx="880" cy="120" r="58"/><circle cx="820" cy="180" r="46"/>
+              <circle cx="140" cy="520" r="60"/><circle cx="230" cy="560" r="44"/>
+              <circle cx="870" cy="520" r="56"/><circle cx="790" cy="560" r="40"/>
+              <circle cx="500" cy="70" r="46"/><circle cx="500" cy="580" r="44"/>
+              <circle cx="70" cy="320" r="44"/><circle cx="930" cy="330" r="46"/>
+            </g>
+
+            <!-- Río -->
+            <path class="rio" d="M 60 90 C 260 170, 330 300, 300 470 C 290 560, 380 610, 520 620" />
+
+            <!-- ==================== ARENA 1 · EL LAGO (74) ==================== -->
+            <g id="arena-lago">
+              <ellipse cx="500" cy="320" rx="235" ry="165" fill="url(#lagoGrad)" stroke="#3d7c85" stroke-width="2"/>
+              <ellipse cx="500" cy="320" rx="205" ry="138" fill="none" stroke="#4b939c" stroke-width="1" opacity=".45"/>
+              <ellipse cx="500" cy="320" rx="160" ry="100" fill="none" stroke="#4b939c" stroke-width="1" opacity=".25"/>
+
+              <!-- cornucopia -->
+              <g>
+                <path d="M 470 300 L 560 300 L 590 268 L 452 268 Z" fill="#4a463d" stroke="#8b8578" stroke-width="2.5"/>
+                <path d="M 452 268 L 590 268 L 596 250 L 448 250 Z" fill="#5d584d" stroke="#8b8578" stroke-width="2.5"/>
+                <path d="M 590 268 C 640 276, 660 316, 636 350" fill="none" stroke="#8b8578" stroke-width="6" stroke-linecap="round"/>
+                <circle cx="500" cy="290" r="6" fill="#d8b25a"/>
+              </g>
+
+              <!-- praderas del norte y pinar del sur -->
+              <g class="pradera">
+                <ellipse cx="330" cy="120" rx="90" ry="46"/>
+                <ellipse cx="660" cy="130" rx="80" ry="42"/>
+              </g>
+              <g class="pinar">
+                <circle cx="330" cy="520" r="54"/><circle cx="420" cy="560" r="46"/>
+                <circle cx="600" cy="560" r="48"/><circle cx="690" cy="520" r="52"/>
+              </g>
+
+              <g class="etiquetas" font-family="Barlow Condensed, sans-serif" font-size="15" fill="#cfc6b2">
+                <text x="500" y="410" text-anchor="middle">EL LAGO</text>
+                <text x="500" y="236" text-anchor="middle">CORNUCOPIA</text>
+                <text x="330" y="124" text-anchor="middle">PRADERA</text>
+                <text x="505" y="552" text-anchor="middle">PINAR</text>
+                <text x="205" y="470" text-anchor="middle">RÍO</text>
+              </g>
+            </g>
+
+            <!-- ==================== ARENA 2 · EL RELOJ (75) ==================== -->
+            <g id="arena-reloj" hidden>
+              <g class="gran-arbol" id="gran-arbol">
+                <rect x="493" y="150" width="14" height="90" fill="#3a2a1c"/>
+                <circle cx="500" cy="140" r="62" fill="#1e3d29"/>
+                <circle cx="455" cy="160" r="42" fill="#254a31"/>
+                <circle cx="545" cy="158" r="40" fill="#1a3524"/>
+              </g>
+
+              <g class="reloj" id="reloj-piedra">
+                <circle cx="500" cy="340" r="118" fill="url(#piedraGrad)" stroke="#8b8578" stroke-width="3"/>
+                <circle cx="500" cy="340" r="96" fill="#15130f" stroke="#5d584d" stroke-width="2"/>
+                <g id="sectores-reloj" stroke="#7d776a" stroke-width="1.4"></g>
+                <g id="aguja-reloj">
+                  <line x1="500" y1="340" x2="500" y2="252" stroke="#d8b25a" stroke-width="4" stroke-linecap="round"/>
+                </g>
+                <circle cx="500" cy="340" r="10" fill="#d8b25a"/>
+                <circle cx="500" cy="340" r="152" fill="none" stroke="#8b8578" stroke-width="1" stroke-dasharray="3 7" opacity=".6"/>
+              </g>
+
+              <g class="etiquetas" font-family="Barlow Condensed, sans-serif" font-size="15" fill="#cfc6b2">
+                <text x="500" y="212" text-anchor="middle">GRAN ÁRBOL</text>
+                <text x="500" y="378" text-anchor="middle">CORNUCOPIA</text>
+                <text x="150" y="200" text-anchor="middle">BOSQUE OESTE</text>
+                <text x="855" y="210" text-anchor="middle">BOSQUE ESTE</text>
+                <text x="205" y="470" text-anchor="middle">RÍO</text>
+              </g>
+            </g>
+
+            <!-- Tributos -->
+            <g id="capa-tributos"></g>
+            <g id="capa-tributos-2"></g>
+          </svg>
+
+          <div class="mapa__leyenda">
+            <span><i class="punto punto--vivo"></i> Vivo</span>
+            <span><i class="punto punto--herido"></i> Herido</span>
+            <span><i class="punto punto--muerto"></i> Caído</span>
+            <span><i class="punto punto--tu"></i> Tú</span>
+          </div>
+        </div>
+
+        <div class="mapa__pie">
+          <div class="reloj-info">
+            <strong id="mapa-info-titulo">La arena</strong>
+            <p id="mapa-info-texto">Cada 2 horas la arena cambia y libera un acontecimiento: niebla venenosa, avispas letales, bestias y catástrofes naturales.</p>
+          </div>
+          <div class="mapa__acciones">
+            <button class="btn btn--secundario" id="btn-inicio-mapa">← Volver al inicio</button>
+            <button class="btn btn--secundario" id="btn-ver-tributos">Ver tributos (24)</button>
+            <button class="btn btn--principal" id="btn-entrar-juego"><span>Que empiecen los Juegos</span></button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- PANTALLA 5 · GAMEPLAY                                        -->
+    <!-- ============================================================ -->
+    <section class="pantalla" id="pantalla-juego">
+      <div class="juego">
+        <!-- Columna izquierda: estado -->
+        <aside class="panel panel--hud">
+          <div class="hud__identidad">
+            <div class="hud__avatar" id="hud-avatar">?</div>
+            <div>
+              <h3 id="hud-nombre">Tributo</h3>
+              <p id="hud-distrito">Distrito —</p>
+            </div>
+          </div>
+
+          <div class="hud__reloj">
+            <span id="hud-hora">00:00</span>
+            <small id="hud-sector">Sector 1</small>
+            <small id="hud-clima" class="hud__clima">☀ Despejado</small>
+          </div>
+
+          <div class="medidores">
+            <div class="medidor" data-tipo="vida">
+              <label>Vida <span id="val-vida">100</span></label>
+              <div class="medidor__fila">
+                <div class="medidor__pista"><div class="medidor__barra" id="barra-vida"></div></div>
+                <button type="button" class="btn-cura" id="btn-cura" title="Usar un objeto curativo del equipo" disabled>
+                  ✚ <span id="txt-cura">Curar</span>
+                </button>
+                <button type="button" class="btn-cura btn-cura--equipo" id="btn-objeto" title="Comer, beber o descansar con un objeto de equipo" disabled>
+                  🍖 <span id="txt-objeto">Comer</span>
+                </button>
+              </div>
+            </div>
+            <div class="medidor" data-tipo="patrocinio">
+              <label>Patrocinadores <span id="val-pat">0</span></label>
+              <div class="medidor__pista"><div class="medidor__barra" id="barra-pat"></div></div>
+            </div>
+            <div class="medidor" data-tipo="cansancio">
+              <label>Cansancio <span id="val-cans">0</span></label>
+              <div class="medidor__pista"><div class="medidor__barra" id="barra-cans"></div></div>
+            </div>
+            <div class="medidor" data-tipo="cordura">
+              <label>Cordura <span id="val-cord">100</span></label>
+              <div class="medidor__pista"><div class="medidor__barra" id="barra-cord"></div></div>
+            </div>
+            <div class="medidor" data-tipo="hambre">
+              <label>Hambre <span id="val-hambre">100</span></label>
+              <div class="medidor__fila">
+                <div class="medidor__pista"><div class="medidor__barra" id="barra-hambre"></div></div>
+                <button type="button" class="btn-cura" id="btn-comer" title="Comer algo del inventario" disabled>
+                  🍞 <span id="txt-comer">Comer</span>
+                </button>
+              </div>
+            </div>
+            <div class="medidor" data-tipo="sed">
+              <label>Sed <span id="val-sed">100</span></label>
+              <div class="medidor__fila">
+                <div class="medidor__pista"><div class="medidor__barra" id="barra-sed"></div></div>
+                <button type="button" class="btn-cura btn-cura--equipo" id="btn-beber" title="Beber algo del inventario" disabled>
+                  💧 <span id="txt-beber">Beber</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="inventario">
+            <h4>Equipo</h4>
+            <ul id="lista-inventario"><li class="vacio">Nada. Solo tus manos.</li></ul>
+          </div>
+
+          <div class="heridas">
+            <h4>Estado del cuerpo</h4>
+            <ul id="lista-heridas"><li class="vacio">Sin heridas. Por ahora.</li></ul>
+          </div>
+
+          <div class="alianza" id="caja-alianza">
+            <h4>Alianza</h4>
+            <p id="txt-alianza">Nadie confía en ti todavía.</p>
+          </div>
+        </aside>
+
+        <!-- Columna central: narración y decisiones -->
+        <section class="panel panel--narracion">
+          <div class="narracion" id="narracion"></div>
+
+          <div class="acontecimiento" id="caja-acontecimiento" hidden>
+            <span class="acontecimiento__icono" id="ac-icono">⚠</span>
+            <div>
+              <strong id="ac-titulo">Acontecimiento</strong>
+              <p id="ac-texto"></p>
+            </div>
+          </div>
+
+          <div class="opciones" id="opciones-juego"></div>
+
+          <div class="acciones-arena" id="acciones-arena">
+            <button type="button" class="accion-arena" id="btn-cazar" title="Salir a buscar comida: gasta tiempo y cansancio">
+              🏹 Cazar <span id="info-cazar">3</span>
+            </button>
+            <button type="button" class="accion-arena" id="btn-trampa" title="Colocar una trampa en tu zona">
+              🪤 Trampa <span id="info-trampa">1</span>
+            </button>
+            <button type="button" class="accion-arena" id="btn-vendaje" title="Vendarte: detiene el sangrado y cierra heridas leves">
+              🩹 Vendarte
+            </button>
+            <button type="button" class="accion-arena" id="btn-pedir" title="Pedir un envío a los patrocinadores">
+              🪂 Pedir envío <span id="info-pedir">0</span>
+            </button>
+            <button type="button" class="accion-arena" id="btn-agua" title="Buscar agua en tu zona: puede estar limpia o contaminada">
+              💧 Buscar agua
+            </button>
+            <button type="button" class="accion-arena" id="btn-escuchar" title="Escuchar la arena: saber quién queda y por dónde anda">
+              👂 Escuchar
+            </button>
+          </div>
+        </section>
+
+        <!-- Columna derecha: tributos -->
+        <aside class="panel panel--tributos">
+          <h3 class="panel__titulo">Tributos vivos <span id="contador-vivos">24</span></h3>
+          <ul class="lista-tributos" id="lista-tributos"></ul>
+          <div class="registro">
+            <h4>Crónica de la arena</h4>
+            <ul id="registro-caidos"><li class="vacio">Los cañones aún no han sonado.</li></ul>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- PANTALLA 6 · HOTEL DEL CAPITOLIO                             -->
+    <!-- ============================================================ -->
+    <section class="pantalla" id="pantalla-hotel">
+      <div class="panel panel--hotel">
+        <p class="etiqueta">Vencedor · Edición 74</p>
+        <h2 class="titulo-pantalla">El Hotel de los Vencedores</h2>
+        <p class="texto-intro">
+          El tren te devuelve al Capitolio entre aplausos y flashes. Te dan una suite con vistas a la ciudad,
+          un médico para tus heridas y una sola noche para dormir. Mañana hay entrevista, y la entrevista lo cambia todo.
+        </p>
+
+        <div class="hotel">
+          <div class="hotel__suite">
+            <h3 class="panel__titulo">Tu suite</h3>
+            <div class="hotel__stats" id="hotel-stats"></div>
+          </div>
+          <div class="hotel__acciones">
+            <h3 class="panel__titulo">¿Qué haces con tu noche?</h3>
+            <div class="opciones" id="opciones-hotel"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- PANTALLA 7 · ENTREVISTA                                      -->
+    <!-- ============================================================ -->
+    <section class="pantalla" id="pantalla-entrevista">
+      <div class="panel panel--entrevista">
+        <div class="test__cabecera">
+          <div>
+            <p class="etiqueta">Entrevista en directo · Capitolio</p>
+            <h2 class="titulo-pantalla">César Flickerman te pregunta</h2>
+          </div>
+          <div class="test__contador" id="entre-contador">1 / 4</div>
+        </div>
+
+        <div class="barra"><div class="barra__relleno" id="entre-barra"></div></div>
+
+        <p class="test__pregunta" id="entre-pregunta">…</p>
+        <div class="opciones" id="entre-opciones"></div>
+
+        <div class="aviso" id="entre-feedback" hidden></div>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- PANTALLA 8 · TIME-SKIP                                       -->
+    <!-- ============================================================ -->
+    <section class="pantalla" id="pantalla-timeskip">
+      <div class="panel panel--timeskip">
+        <p class="etiqueta">Time-skip</p>
+        <h2 class="titulo-pantalla">Un año después</h2>
+        <div class="timeskip__lineas" id="timeskip-lineas"></div>
+        <div class="aviso" id="timeskip-aviso"></div>
+        <button class="btn btn--principal" id="btn-ir-arena2">
+          <span>Entrar en la arena del 75</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- PANTALLA 9 · FINAL                                           -->
+    <!-- ============================================================ -->
+    <section class="pantalla" id="pantalla-final">
+      <div class="panel panel--final">
+        <p class="etiqueta" id="final-etiqueta">Los Juegos han terminado</p>
+        <h2 class="titulo-pantalla" id="final-titulo">—</h2>
+        <p class="texto-intro" id="final-texto"></p>
+
+        <div class="muerte" id="final-muerte" hidden></div>
+        <div class="epilogo" id="final-epilogo" hidden></div>
+
+        <div class="final__acciones final__acciones--top">
+          <button class="btn btn--secundario" id="btn-ver-resultados">Ver resultados de la partida</button>
+          <button class="btn btn--principal" id="btn-reiniciar-top"><span>Reiniciar</span></button>
+        </div>
+
+        <div class="resultados" id="final-resultados" hidden></div>
+
+        <div class="stats stats--final" id="final-stats"></div>
+        <div class="final__acciones">
+          <button class="btn btn--principal" id="btn-reiniciar"><span>Reiniciar partida</span></button>
+          <button class="btn btn--secundario" id="btn-ver-mapa-final">Visualizar arena</button>
+          <button class="btn btn--secundario" id="btn-inicio-final">← Volver al inicio</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ====================== MODAL TRIBUTOS ====================== -->
+  <!-- Minijuegos de la arena -->
+  <div class="minijuego" id="minijuego" hidden>
+    <div class="minijuego__caja">
+      <div class="minijuego__cabecera">
+        <p class="minijuego__etiqueta" id="mj-etiqueta">MINIJUEGO</p>
+        <h3 class="minijuego__titulo" id="mj-titulo">…</h3>
+        <p class="minijuego__instrucciones" id="mj-instrucciones">…</p>
+      </div>
+      <div class="minijuego__lienzo" id="mj-lienzo"></div>
+      <div class="minijuego__pie">
+        <span class="minijuego__tiempo" id="mj-tiempo">5.0 s</span>
+        <span class="minijuego__resultado" id="mj-resultado"></span>
+        <button type="button" class="btn btn--secundario" id="mj-salir">Abandonar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="modal" hidden>
+    <div class="modal__caja">
+      <button class="modal__cerrar" id="modal-cerrar" aria-label="Cerrar">✕</button>
+      <h3 class="modal__titulo" id="modal-titulo">Los 24 tributos</h3>
+      <div class="modal__cuerpo" id="modal-cuerpo"></div>
+    </div>
+  </div>
+
+  <script src="js/js.js"></script>
+</body>
+</html>
