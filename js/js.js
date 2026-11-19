@@ -1054,6 +1054,9 @@ function iniciarHistoria() {
 
 function prepararArena() {
   const arena = ARENAS[estado.arena];
+  // Memoria de las arenas vividas: sirve para los juegos del pasado
+  estado.arenasJugadas = estado.arenasJugadas || [];
+  if (!estado.arenasJugadas.includes(estado.arena)) estado.arenasJugadas.push(estado.arena);
   estado.vida = 100;
   estado.cansancio = 0;
   estado.cordura = 100;
@@ -1061,6 +1064,15 @@ function prepararArena() {
   estado.sangrado = false;
   estado.inventario = [];
   estado.hora = 0;
+  // Juegos del pasado: repetir una arena concreta
+  try {
+    const rep = JSON.parse(localStorage.getItem('jdh.repetir') || 'null');
+    if (rep && rep.arena && ARENAS[rep.arena]) {
+      estado.arena = rep.arena;
+      estado.pasado = true;
+      localStorage.removeItem('jdh.repetir');
+    }
+  } catch (e) { /* nada */ }
   estado.sector = 1;
   estado.turno = 0;
   estado.vivo = true;
@@ -3134,33 +3146,55 @@ function mjCarrera(lienzo, terminar) {
   pista.className = 'mj-pista';
   lienzo.append(pista, meta, yo, otro);
 
+  // Botones para quien juega en móvil o con ratón: mismo gesto que las teclas
+  const controles = document.createElement('div');
+  controles.className = 'mj-carrera-botones';
+  const bIzq = document.createElement('button');
+  bIzq.type = 'button'; bIzq.className = 'mj-paso'; bIzq.textContent = '← Izquierda';
+  const bDer = document.createElement('button');
+  bDer.type = 'button'; bDer.className = 'mj-paso'; bDer.textContent = 'Derecha →';
+  controles.append(bIzq, bDer);
+  lienzo.appendChild(controles);
+
   let x = 10, rival = 10;
-  const avance = 2 + estado.stats.resistencia * 0.35;
+  // Cada paso avanza bastante más: antes hacía falta una precisión imposible
+  const avance = 26 + estado.stats.resistencia * 1.6;
   let ultimo = performance.now();
   let ultimaTecla = '';
 
-  const tecla = (e) => {
-    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-    e.preventDefault();
-    if (e.key === ultimaTecla) return; // hay que alternar
-    ultimaTecla = e.key;
+  const paso = (lado) => {
+    if (lado === ultimaTecla) return; // hay que alternar
+    ultimaTecla = lado;
     x += avance;
     yo.style.left = `${Math.min(x, ancho - 40)}px`;
     if (x >= ancho - 40) terminar(true, 'Llegas primero a la grieta.');
   };
+
+  const tecla = (e) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    paso(e.key);
+  };
   window.addEventListener('keydown', tecla);
+  bIzq.addEventListener('click', () => paso('ArrowLeft'));
+  bDer.addEventListener('click', () => paso('ArrowRight'));
 
   const animar = (t) => {
     const dt = Math.min(40, t - ultimo);
     ultimo = t;
-    rival += (0.055 + Math.random() * 0.03) * dt;
+    // El rival corre más lento y su ventaja crece con la dificultad, pero con margen
+    rival += (0.028 + Math.random() * 0.015) * dt * factorDificultad();
     otro.style.left = `${Math.min(rival, ancho - 40)}px`;
     if (rival >= ancho - 40) { terminar(false, 'Te alcanza por detrás.'); return; }
     mj.raf = requestAnimationFrame(animar);
   };
   mj.raf = requestAnimationFrame(animar);
 
-  mj.limpiar = () => window.removeEventListener('keydown', tecla);
+  mj.limpiar = () => {
+    window.removeEventListener('keydown', tecla);
+    bIzq.removeEventListener('click', () => paso('ArrowLeft'));
+    bDer.removeEventListener('click', () => paso('ArrowRight'));
+  };
 }
 
 /* --- 10. Apretón de manos / pulseada: pulsa rápido para vencer --- */
@@ -4965,9 +4999,10 @@ function reabrirCornucopia() {
       texto: 'Correr al centro y cargar con todo lo que puedas.',
       efecto: 'Botín máximo · pelea casi segura',
       aplicar: async () => {
-        const ganado = await momentoDecisivo('botin', 'La cornucopia se reabre');
+        // La cornucopia reabierta es una elección de riesgo, no un minijuego
         if (estado.fin) return '';
-        if (ganado) {
+        const exito = Math.random() < clamp(0.42 + estado.stats.velocidad * 0.05 + estado.stats.combate * 0.04 - presionArena() * 0.15, 0.15, 0.92);
+        if (exito) {
           const lote = [armaAleatoria(), ...botinAleatorio('cornucopia').slice(0, 2)];
           anadirObjetos(lote);
           ajustarPatrocinio(8);
@@ -5065,8 +5100,9 @@ function fiestaCapitolio() {
       texto: 'Dar un discurso al cielo agradeciendo a tus patrocinadores.',
       efecto: 'Patrocinadores ↑↑ · cordura ↓',
       aplicar: async () => {
-        const inspirado = await momentoDecisivo('ingenio', 'El discurso de tu vida');
+        // La Fiesta se resuelve con tus estadísticas, sin minijuego
         if (estado.fin) return '';
+        const inspirado = Math.random() < clamp(0.4 + estado.stats.carisma * 0.06 - presionArena() * 0.1, 0.15, 0.93);
         if (!inspirado) {
           ajustarPatrocinio(-6);
           estado.cordura = clamp(estado.cordura - 8, 0, 100);
@@ -5734,7 +5770,9 @@ async function lanzarAcontecimiento() {
   const posibles = (OPCIONES_MJ_EVENTO[ac.id] || []).filter((m) => m !== estado.mjEventoUsados[ac.id]);
   const elegido = posibles.length ? elegir(posibles) : (OPCIONES_MJ_EVENTO[ac.id] || [])[0];
   if (elegido) estado.mjEventoUsados[ac.id] = elegido;
-  const mjEvento = elegido;
+  // Los acontecimientos de la arena NO llevan minijuego: solo los momentos decisivos
+  // y las acciones propias (cazar, vendarse…) los tienen.
+  const mjEvento = null;
   let resultadoMinijuego = null;
   if (mjEvento && !estado.fin) {
     resultadoMinijuego = await jugarMinijuego(mjEvento);
@@ -6471,9 +6509,246 @@ function pintarEpilogo(tipo) {
     </div>`;
 }
 
+/* ============================================================
+   LA REBELIÓN (tras ganar la edición 75)
+   Tres actos, como en las películas: el Sinsajo, la guerra
+   abierta y el juicio del Capitolio; y al final, los Juegos
+   del pasado: volver a las arenas que ya viviste.
+   ============================================================ */
+
+const ACTOS_REBELION = [
+  {
+    id: 'sinsajo',
+    titulo: 'El Sinsajo',
+    entradilla: 'Han pasado semanas desde la arena del 75. Te sacaron de allí antes de que el Capitolio pudiera matarte, y ahora hay una cámara delante y un país detrás.',
+    texto: 'El Distrito 13 existe: vive bajo tierra, con fusiles y con normas. Te quieren como símbolo. Un símbolo no elige: lo colocan. Pero cada frase que digas va a mover a miles de personas a la muerte.',
+    decisiones: [
+      {
+        texto: 'Aceptar ser el Sinsajo y grabar el primer anuncio.',
+        efecto: 'Rebelión ↑↑ · Cordura ↓',
+        aplicar: () => {
+          estado.rebelion = (estado.rebelion || 0) + 20;
+          estado.cordura = clamp(estado.cordura - 12, 0, 100);
+          return 'Sales en pantalla con el traje negro y las alas pintadas. En el Capitolio apagan la emisión, pero en once distritos alguien la ha grabado.';
+        }
+      },
+      {
+        texto: 'Pedir una tregua para evacuar a los civiles primero.',
+        efecto: 'Distritos ↑ · Rebelión ↓',
+        aplicar: () => {
+          estado.rebelion = (estado.rebelion || 0) + 8;
+          estado.distritos = (estado.distritos || 0) + 14;
+          return 'El 13 acepta a regañadientes. Miles de personas salen de los distritos antes de la primera bomba. Los mandos te llaman blando. La gente, no.';
+        }
+      },
+      {
+        texto: 'Negarte a ser un símbolo y exigir ver a los tuyos.',
+        efecto: 'Cordura ↑ · Rebelión ↓',
+        aplicar: () => {
+          estado.cordura = clamp(estado.cordura + 14, 0, 100);
+          estado.rebelion = (estado.rebelion || 0) + 2;
+          return 'Gritas hasta que te encierran en una habitación blanca. Al tercer día te dejan ver a tu familia. Vale la pena, aunque el país espere.';
+        }
+      }
+    ]
+  },
+  {
+    id: 'guerra',
+    titulo: 'La guerra abierta',
+    entradilla: 'Los distritos se han levantado. El Capitolio responde con las mismas armas de siempre: los Juegos.',
+    texto: 'Te ponen al frente de un escuadrón de tiradores y cámaras. Delante está la avenida de los desfiles, llena de niños y de trampas. Detrás, la gente que confía en que sobrevivas otra vez.',
+    decisiones: [
+      {
+        texto: 'Entrar con el escuadrón por el frente y limpiar la avenida.',
+        efecto: 'Rebelión ↑↑ · riesgo alto',
+        aplicar: () => {
+          const exito = Math.random() < clamp(0.45 + estado.stats.combate * 0.05, 0.2, 0.9);
+          if (exito) {
+            estado.rebelion = (estado.rebelion || 0) + 25;
+            return 'Cruzas la avenida con las cámaras detrás. Cada trampa desactivada es una hora menos de guerra.';
+          }
+          estado.cordura = clamp(estado.cordura - 18, 0, 100);
+          return 'La avenida se llena de humo y de niños corriendo. Pierdes a gente del escuadrón y lo ves todo desde el suelo.';
+        }
+      },
+      {
+        texto: 'Colarte por los túneles con un equipo pequeño.',
+        efecto: 'Sigilo · riesgo medio',
+        aplicar: () => {
+          const exito = Math.random() < clamp(0.4 + estado.stats.sigilo * 0.06, 0.2, 0.92);
+          if (exito) {
+            estado.rebelion = (estado.rebelion || 0) + 16;
+            return 'Sales por debajo de los desfiles y revientas el nudo de comunicaciones del Capitolio sin que nadie te vea llegar.';
+          }
+          estado.cordura = clamp(estado.cordura - 10, 0, 100);
+          return 'Los túneles están minados. Volvéis a oscuras, con dos menos y sin haber llegado.';
+        }
+      },
+      {
+        texto: 'Quedarte con las cámaras y hacer de señuelo.',
+        efecto: 'Patrocinio ↑ · Rebelión ↑',
+        aplicar: () => {
+          estado.rebelion = (estado.rebelion || 0) + 12;
+          estado.patrocinio = clamp(estado.patrocinio + 10, 0, 100);
+          return 'Te dejas ver en lo alto de un edificio y el Capitolio gasta sus bombas en ti. Los tuyos cruzan por donde ya no hay nadie mirando.';
+        }
+      }
+    ]
+  },
+  {
+    id: 'juicio',
+    titulo: 'El juicio',
+    entradilla: 'El Capitolio ha caído. En la plaza se ha levantado un tribunal, y en el banquillo está el hombre que firmó todos los nombres.',
+    texto: 'Te dan una flecha y la última palabra. Delante, el presidente espera. Detrás, los distritos piden algo que nadie ha pedido antes: que decidas tú.',
+    decisiones: [
+      {
+        texto: 'Disparar. Que lo juzgue tu arco.',
+        efecto: 'Cierre personal · consecuencias',
+        aplicar: () => {
+          estado.desenlace = 'venganza';
+          return 'Disparas. La plaza entera contiene el aliento y después aplaude. Tú no sientes lo que esperabas: solo el peso del arco.';
+        }
+      },
+      {
+        texto: 'Bajar el arco y entregar la flecha al tribunal.',
+        efecto: 'Legado · distritos ↑',
+        aplicar: () => {
+          estado.desenlace = 'justicia';
+          estado.distritos = (estado.distritos || 0) + 20;
+          return 'Dejas la flecha sobre la mesa y das media vuelta. Por primera vez en la historia de Panem, alguien vence sin matar en el último acto.';
+        }
+      },
+      {
+        texto: 'Pedir que se juzgue a todos, también a los que dieron las órdenes.',
+        efecto: 'Desenlace político',
+        aplicar: () => {
+          estado.desenlace = 'reforma';
+          estado.rebelion = (estado.rebelion || 0) + 10;
+          return 'Nombras a los mandos del 13, a los patrocinadores, a los que miraron. La sala se queda muda. Es el principio de algo que no se acaba hoy.';
+        }
+      }
+    ]
+  }
+];
+
+function abrirRebelion() {
+  estado.rebelion = estado.rebelion || 0;
+  estado.distritos = estado.distritos || 0;
+  estado.actoRebelion = 0;
+  estado.desbloqueoPasados = true;
+  $('#final-etiqueta').textContent = 'Después de los Juegos · Panem';
+  $('#final-titulo').textContent = 'La rebelión';
+  $('#final-texto').textContent = 'Has ganado dos veces. Ahora empieza la parte que las cámaras no emitieron.';
+  $('#final-muerte').hidden = true;
+  $('#final-resultados').hidden = true;
+  $('#final-stats').innerHTML = '';
+  $('#btn-continuar-historia').hidden = true;
+  const caja = $('#final-epilogo');
+  caja.hidden = false;
+  pintarActoRebelion();
+}
+
+function pintarActoRebelion() {
+  const caja = $('#final-epilogo');
+  const acto = ACTOS_REBELION[estado.actoRebelion];
+  if (!acto) { pintarFinalRebelion(); return; }
+  caja.hidden = false;
+  caja.innerHTML = `
+    <p class="epilogo__entradilla">Acto ${estado.actoRebelion + 1} de ${ACTOS_REBELION.length}</p>
+    <h3 class="epilogo__titulo">${escapar(acto.titulo)}</h3>
+    <p class="epilogo__texto">${escapar(acto.entradilla)}</p>
+    <p class="epilogo__texto">${escapar(acto.texto)}</p>
+    <div class="rebelion__opciones">
+      ${acto.decisiones.map((d, i) => `
+        <button type="button" class="opcion rebelion__opcion" data-i="${i}">
+          <span class="opcion__letra">${'ABC'[i]}</span>
+          <span>${escapar(d.texto)}<span class="opcion__efecto">${escapar(d.efecto)}</span></span>
+        </button>`).join('')}
+    </div>`;
+  caja.querySelectorAll('.rebelion__opcion').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const d = acto.decisiones[Number(btn.dataset.i)];
+      const texto = d.aplicar();
+      caja.querySelector('.rebelion__opciones').innerHTML =
+        `<p class="epilogo__texto rebelion__resultado">${escapar(texto)}</p>
+         <button type="button" class="btn btn--principal" id="btn-acto-siguiente"><span>Continuar</span></button>`;
+      $('#btn-acto-siguiente').addEventListener('click', () => {
+        estado.actoRebelion += 1;
+        pintarActoRebelion();
+      });
+    });
+  });
+}
+
+function pintarFinalRebelion() {
+  const caja = $('#final-epilogo');
+  const desenlaces = {
+    venganza: 'Panem recordará que fuiste el que disparó. Unos te llamarán justicia y otros, verdugo.',
+    justicia: 'Panem recordará que tuviste el arco cargado y elegiste no usarlo. Eso también es una forma de ganar.',
+    reforma: 'Panem recordará que no bastaba con cambiar al presidente: había que cambiar el sistema que lo hizo posible.'
+  };
+  const rebelion = Math.round(estado.rebelion || 0);
+  const distritos = Math.round(estado.distritos || 0);
+  caja.hidden = false;
+  caja.innerHTML = `
+    <p class="epilogo__entradilla">Epílogo · Panem</p>
+    <h3 class="epilogo__titulo">Después de la guerra</h3>
+    <p class="epilogo__texto">${escapar(desenlaces[estado.desenlace] || desenlaces.justicia)}</p>
+    <p class="epilogo__texto">Rebelión ${rebelion} · Distritos en pie ${distritos}. ${distritos >= 40 ? 'Los distritos no vuelven a arrodillarse.' : rebelion >= 40 ? 'La guerra fue corta y brutal, pero se acabó.' : 'La paz llegará despacio, y con vigilancia.'}</p>
+    <div class="epilogo__noticia">
+      <span class="epilogo__medio">PANEM · DESPUÉS DE LOS JUEGOS</span>
+      <strong>Los Juegos quedan suspendidos</strong>
+      <p>Las arenas se convierten en monumentos. Mañana, otros nombres — pero nadie tendrá que morir por ellos.</p>
+    </div>
+    <div class="final__acciones">
+      <button type="button" class="btn btn--principal" id="btn-juegos-pasados"><span>Volver a las arenas del pasado</span></button>
+      <button type="button" class="btn btn--secundario" id="btn-reiniciar-rebelion"><span>Reiniciar partida</span></button>
+    </div>`;
+  $('#btn-juegos-pasados').addEventListener('click', abrirJuegosPasados);
+  $('#btn-reiniciar-rebelion').addEventListener('click', reiniciarPartida);
+}
+
+/* Juegos del pasado: revivir las arenas ya jugadas (como en la película 5) */
+const ARENAS_PASADAS = {
+  lago: { nombre: 'La arena del Lago', texto: 'El lago helado, los sauces y la cornucopia de metal. Aquí empezó todo.' },
+  reloj: { nombre: 'La arena del Reloj', texto: 'Doce sectores girando cada hora. Aquí el Capitolio intentó borrarte de la historia.' }
+};
+
+function abrirJuegosPasados() {
+  const caja = $('#final-epilogo');
+  const arenas = Object.keys(ARENAS_PASADAS).filter((id) => (estado.arenasJugadas || []).includes(id));
+  const lista = arenas.length ? arenas : ['lago'];
+  caja.innerHTML = `
+    <p class="epilogo__entradilla">Juegos del pasado</p>
+    <h3 class="epilogo__titulo">Volver a la arena</h3>
+    <p class="epilogo__texto">El tribunal te da una última cosa: recordar. Puedes volver a cualquiera de las arenas que sobreviviste y jugarla otra vez, con todo lo que sabes ahora.</p>
+    <div class="rebelion__opciones">
+      ${lista.map((id) => `
+        <button type="button" class="opcion rebelion__opcion" data-arena="${id}">
+          <span class="opcion__letra">↺</span>
+          <span>${escapar(ARENAS_PASADAS[id].nombre)}<span class="opcion__efecto">${escapar(ARENAS_PASADAS[id].texto)}</span></span>
+        </button>`).join('')}
+    </div>`;
+  caja.querySelectorAll('.rebelion__opcion').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.arena;
+      estado.pasado = true;
+      estado.reinicioRapido = { arena: id };
+      reiniciarPartida();
+    });
+  });
+}
+
 function mostrarFinal(tipo) {
   estado.fin = true;
   cajaOpciones.innerHTML = '';
+
+  // Ganar la edición 75 abre la rebelión: el botón de continuar la historia
+  const btnContinuar = $('#btn-continuar-historia');
+  if (btnContinuar) {
+    const gano = tipo === 'victoria' || tipo === 'empate-distrito';
+    btnContinuar.hidden = !(gano && estado.edicion === 75);
+  }
   const yo = estado.yo;
   const vivos = estado.tributos.filter((t) => t.vivo);
   const img = IMAGENES[estado.imagen] || IMAGENES.neutral;
@@ -6724,6 +6999,10 @@ $('#btn-ver-resultados').addEventListener('click', () => {
 });
 
 function reiniciarPartida() {
+  // Si venimos de "juegos del pasado", se guarda la arena elegida para el reinicio
+  if (estado.reinicioRapido) {
+    try { localStorage.setItem('jdh.repetir', JSON.stringify(estado.reinicioRapido)); } catch (e) { /* nada */ }
+  }
   // Se limpia la partida entera y se vuelve a la ceremonia de la cosecha
   if (paramsPrueba) {
     location.href = location.pathname;
@@ -6736,6 +7015,8 @@ function reiniciarPartida() {
 function volverAlInicio() {
   guardarConfig();
   borrarEstadoGuardado();
+  const btnC = $('#btn-continuar-historia');
+  if (btnC) btnC.hidden = true;
 
   // 1. Estado de la partida a cero
   const cfg = leerConfig() || {};
@@ -6816,6 +7097,7 @@ function volverAlInicio() {
   irA('inicio');
 }
 
+$('#btn-continuar-historia').addEventListener('click', abrirRebelion);
 $('#btn-reiniciar').addEventListener('click', reiniciarPartida);
 $('#btn-reiniciar-top').addEventListener('click', reiniciarPartida);
 

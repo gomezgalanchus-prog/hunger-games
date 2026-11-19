@@ -2391,3 +2391,9 @@ li.vacio { color: #6a645c; font-style: italic; border-left-color: transparent; b
   text-transform: uppercase;
   color: var(--tenue);
 }
+
+/* --- La rebelión y los juegos del pasado --- */
+.rebelion__opciones { display: grid; gap: 10px; margin-top: 14px; }
+.rebelion__opcion { text-align: left; }
+.rebelion__resultado { border-left: 2px solid var(--oro); padding-left: 12px; }
+.mj-carrera-botones { display: flex; gap: 10px; justify-content: center; margin-top: 8px; }
