@@ -1072,6 +1072,9 @@ function prepararArena() {
   estado.ultimoEco = '';
   estado.ultimoEvento = '';
   estado.cazar = 3;
+  estado.cazarHoras = 0;
+  estado.horaAnterior = 0;
+  estado.dia = 1;
   estado.trampas = 0;
   estado.pedir = 1;
   estado.hambre = 100;
@@ -2550,12 +2553,57 @@ async function jugarMinijuego(clave) {
       }, 900));
     };
 
-    // El temporizador arranca en el siguiente fotograma, ya con el lienzo montado
-    def.montar(lienzo, terminar);
-    requestAnimationFrame(() => {
+    // Aviso del nivel de exigencia, para que el jugador sepa a qué se enfrenta
+    const dif = factorDificultad();
+    if (dif >= 1.15) mjTexto('#mj-etiqueta', `${def.etiqueta} · EXIGENTE`);
+
+    // Cuenta atrás de 3 segundos: el lienzo se ve pero no se juega hasta el ¡YA!
+    const cuenta = document.createElement('div');
+    cuenta.className = 'mj-cuenta';
+    cuenta.textContent = '3';
+    lienzo.appendChild(cuenta);
+    mjTexto('#mj-tiempo', 'Prepárate…');
+
+    const arrancar = () => {
+      if (cerrado || arrancado) return;
+      arrancado = true;
+      lienzo.removeEventListener('pointerdown', saltar, { capture: true });
+      cuenta.remove();
+      // El temporizador arranca en el siguiente fotograma, ya con el lienzo montado
+      def.montar(lienzo, terminar);
+      requestAnimationFrame(() => {
+        if (cerrado) return;
+        const segundos = Math.max(3, Math.round((def.segundos / factorDificultad()) * 0.85));
+        mj.temporizadores.push(mjTiempo(segundos, () => {
+          // Algunos minijuegos se ganan aguantando hasta el final del tiempo
+          if (lienzo.__sobrevivir) { terminar(true, lienzo.__sobrevivir()); return; }
+          terminar(false, def.fallo);
+        }));
+      });
+    };
+
+    // 3, 2, 1 y a jugar. Se puede saltar la cuenta con un clic si ya sabes lo que hay.
+    let restante = 3;
+    let arrancado = false;
+    const saltar = (ev) => {
+      if (arrancado) return;
+      ev.stopPropagation();
+      ev.preventDefault();
+      restante = 0;
+      arrancar();
+    };
+    lienzo.addEventListener('pointerdown', saltar, { capture: true });
+    const tic = () => {
       if (cerrado) return;
-      mj.temporizadores.push(mjTiempo(def.segundos, () => terminar(false, def.fallo)));
-    });
+      restante -= 1;
+      if (restante <= 0) { arrancar(); return; }
+      cuenta.textContent = String(restante);
+      cuenta.classList.remove('mj-cuenta--latido');
+      void cuenta.offsetWidth;
+      cuenta.classList.add('mj-cuenta--latido');
+      mj.temporizadores.push(setTimeout(tic, 900));
+    };
+    mj.temporizadores.push(setTimeout(tic, 900));
   });
 }
 
@@ -3130,9 +3178,11 @@ function mjPulseada(lienzo, terminar) {
   lienzo.appendChild(caja);
 
   let fuerza = 50;
-  const fuerzaJugador = 4 + estado.stats.fuerza;
-  const fuerzaRival = 5 + Math.round(Math.random() * 3);
+  const fuerzaJugador = (6 + estado.stats.fuerza) / Math.max(1, factorDificultad() * 0.85);
+  const fuerzaRival = Math.round((3 + Math.random() * 2 + (estado.arena === 'reloj' ? 1 : 0)) * factorDificultad());
   let ultimo = performance.now();
+  // Los primeros segundos son de tanteo: el rival no empuja para que se entienda el gesto
+  let tanteo = 1400;
 
   const apretar = () => { fuerza += fuerzaJugador; relleno.style.width = `${clamp(fuerza, 0, 100)}%`; };
   lienzo.addEventListener('pointerdown', apretar);
@@ -3140,7 +3190,8 @@ function mjPulseada(lienzo, terminar) {
   const animar = (t) => {
     const dt = Math.min(60, t - ultimo) / 16;
     ultimo = t;
-    fuerza -= fuerzaRival * dt * 0.9;
+    if (tanteo > 0) tanteo -= (dt * 16);
+    else fuerza -= fuerzaRival * dt * 0.55;
     fuerza = clamp(fuerza, 0, 100);
     relleno.style.width = `${fuerza}%`;
     if (fuerza >= 100) { terminar(true, 'Le ganas la mano.'); return; }
@@ -3150,6 +3201,23 @@ function mjPulseada(lienzo, terminar) {
   mj.raf = requestAnimationFrame(animar);
 
   mj.limpiar = () => lienzo.removeEventListener('pointerdown', apretar);
+}
+
+/* --- Dificultad progresiva ---
+   Cada edición y cada turno añaden exigencia: menos tiempo y más rivales.
+   Del 74 al 75, y según avanza la arena, los minijuegos se aprietan. */
+
+function factorDificultad() {
+  const porEdicion = estado.edicion >= 75 ? 1 : 0;
+  // Cada turno aprieta, y los últimos (menos tributos, más presión) aprietan más
+  const porTurno = Math.min(1, (estado.turno || 0) / 14);
+  const porPresion = presionArena();
+  return clamp(0.85 + porEdicion * 0.3 + porTurno * 0.45 + porPresion * 0.2, 0.8, 1.9);
+}
+
+/* Objetivos que crecen con la dificultad (huellas, presas, pasos…) */
+function metaConDificultad(base) {
+  return Math.max(base, Math.round(base * (0.75 + factorDificultad() * 0.55)));
 }
 
 /* --- 11. Lectura del Capitolio: caza la palabra clave en un texto que se mueve --- */
@@ -3309,6 +3377,7 @@ function mjAvispas(lienzo, terminar) {
   const ctx = mjContexto(lienzo, terminar);
   const avispas = [];
   let picaduras = 0;
+  const limite = Math.max(2, 5 - Math.round(factorDificultad() * 2));
   let ultimo = performance.now();
 
   ctx.setExtra('Picaduras: 0/3');
@@ -3360,29 +3429,63 @@ function mjAvispas(lienzo, terminar) {
 /* --- 15. Bestias mutantes: elige el camino y escóndete a tiempo --- */
 function mjBestias(lienzo, terminar) {
   const ctx = mjContexto(lienzo, terminar);
-  const escenas = 3;
   let ronda = 0;
+
+  /* Cada ronda es una situación distinta y la salida buena cambia: no hay una opción
+     que valga siempre. Se elige una situación y se barajan sus respuestas. */
+  const SITUACIONES = [
+    {
+      texto: 'Los mutos rodean el claro y el viento trae su olor. ¿Por dónde sales?',
+      opciones: [
+        { t: 'Subir al árbol más alto y esperar', bien: true, porque: 'Los mutos no trepan: te pierden de vista.' },
+        { t: 'Cruzar el río nadando', bien: false, porque: 'El agua está helada y te agarra las piernas.' },
+        { t: 'Correr en línea recta', bien: false, porque: 'Corren más que tú en campo abierto.' },
+        { t: 'Meterte en una madriguera', bien: false, porque: 'Es su madriguera.' }
+      ]
+    },
+    {
+      texto: 'Uno te ha olido y viene directo. ¿Qué haces?',
+      opciones: [
+        { t: 'Quedarte quieto y aguantar la respiración', bien: true, porque: 'Cazan por movimiento: te confunde con un tronco.' },
+        { t: 'Gritar para asustarlo', bien: false, porque: 'El grito llama a los demás.' },
+        { t: 'Tirarle la mochila y correr', bien: false, porque: 'Le das comida y te quedas sin nada.' },
+        { t: 'Subir a la roca más cercana', bien: false, porque: 'Salta más alto que tú.' }
+      ]
+    },
+    {
+      texto: 'Quedan dos, y uno cojea. El otro te corta la salida del claro.',
+      opciones: [
+        { t: 'Encender fuego entre los dos', bien: true, porque: 'El fuego los separa y te abre un hueco.' },
+        { t: 'Atacar al que cojea', bien: false, porque: 'El otro te cae encima mientras peleas.' },
+        { t: 'Esperar a que se peleen entre ellos', bien: false, porque: 'Están entrenados para no pelearse.' },
+        { t: 'Correr hacia el que cojea', bien: false, porque: 'Te cierra el paso el que está entero.' }
+      ]
+    },
+    {
+      texto: 'El muto te alcanza y te tira al suelo. Estás debajo de él.',
+      opciones: [
+        { t: 'Clavarle el cuchillo en el cuello', bien: true, porque: 'Es el único punto blando que alcanzas.' },
+        { t: 'Forcejear para levantarte', bien: false, porque: 'Pesa el triple que tú.' },
+        { t: 'Cerrar los ojos y no moverte', bien: false, porque: 'Te remata sin dudar.' },
+        { t: 'Ofrecerle tu comida', bien: false, porque: 'No quiere comida.' }
+      ]
+    }
+  ];
+
+  const elegidas = barajar(SITUACIONES).slice(0, 3);
+  let actual = null;
 
   const montarRonda = () => {
     lienzo.querySelectorAll('.mj-opcion-bestia, .mj-texto-bestia').forEach((n) => n.remove());
+    actual = elegidas[ronda];
     const texto = document.createElement('div');
     texto.className = 'mj-texto-bestia';
-    texto.textContent = [
-      'Los mutos rodean el claro. ¿Por dónde sales?',
-      'Uno te ha olido. ¿Qué haces?',
-      'Quedan dos, y uno cojea. Última decisión.'
-    ][ronda];
+    texto.textContent = actual.texto;
     lienzo.appendChild(texto);
 
-    const opciones = barajar([
-      { t: 'Subir al árbol más alto', bien: true },
-      { t: 'Cruzar el río nadando', bien: ronda > 0 },
-      { t: 'Correr en línea recta', bien: false },
-      { t: 'Quedarte quieto y aguantar la respiración', bien: ronda === 2 }
-    ]);
     const caja = document.createElement('div');
     caja.className = 'mj-opciones-bestia';
-    opciones.forEach((o) => {
+    barajar(actual.opciones).forEach((o) => {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'mj-opcion-bestia';
@@ -3391,10 +3494,10 @@ function mjBestias(lienzo, terminar) {
         if (o.bien) {
           ctx.sumar(20, 'Bien pensado');
           ronda += 1;
-          if (ronda >= escenas) ctx.acabar(true, 'Las bestias se quedan sin presa.');
+          if (ronda >= 3) ctx.acabar(true, 'Las bestias se quedan sin presa.');
           else montarRonda();
         } else {
-          ctx.acabar(false, 'La manada te alcanza en tres zancadas.');
+          ctx.acabar(false, `La manada te alcanza: ${o.porque}`);
         }
       });
       caja.appendChild(b);
@@ -3565,6 +3668,8 @@ function mjSangre(lienzo, terminar) {
 function mjCazar(lienzo, terminar) {
   const ctx = mjContexto(lienzo, terminar);
   let presas = 0;
+  // Una presa basta al principio; con la partida avanzada hay que traer dos
+  const metaPresas = factorDificultad() >= 1.4 ? 2 : 1;
   let tiros = 3;
   let ultimo = performance.now();
   const animales = [];
@@ -3580,7 +3685,7 @@ function mjCazar(lienzo, terminar) {
     const el = ctx.pieza('mj-presa', margen, y);
     el.textContent = tipo;
     animales.push({
-      el, x: margen, y, vx: (Math.random() < 0.5 ? -1 : 1) * (1.6 + Math.random() * 1.6),
+      el, x: margen, y, vx: (Math.random() < 0.5 ? -1 : 1) * (1.6 + Math.random() * 1.6) * factorDificultad(),
       viva: true, salto: Math.random() * 6, margen
     });
     return el;
@@ -3624,8 +3729,12 @@ function mjCazar(lienzo, terminar) {
     } else {
       ctx.sumar(-5, 'Fallo');
     }
+    if (presas >= metaPresas) {
+      ctx.acabar(true, `Vuelves con ${presas} presa${presas > 1 ? 's' : ''}.`);
+      return;
+    }
     if (tiros <= 0) {
-      ctx.acabar(presas > 0, presas > 0 ? `Vuelves con ${presas} presa${presas > 1 ? 's' : ''}.` : 'Se te escapan todas.');
+      ctx.acabar(false, 'Se te escapan todas.');
     }
   });
 }
@@ -3689,12 +3798,395 @@ function mjVendaje(lienzo, terminar) {
   mj.limpiar = () => { lienzo.removeEventListener('pointermove', girar); };
 }
 
+/* --- 22. Avispas: abrirse paso por el enjambre moviendo al tributo --- */
+function mjEnjambre(lienzo, terminar) {
+  const ctx = mjContexto(lienzo, terminar);
+  const ancho = 320, alto = 220;
+  const jugador = ctx.pieza('mj-enjambre-yo');
+  jugador.style.left = '150px';
+  jugador.style.top = '180px';
+  let px = 150, py = 180;
+  let picaduras = 0;
+  const limite = Math.max(2, 5 - Math.round(factorDificultad() * 2));
+  const avispas = [];
+  for (let i = 0; i < 9; i += 1) {
+    const a = ctx.pieza('mj-enjambre-avispa');
+    a.textContent = '🐝';
+    const o = { x: Math.random() * ancho, y: Math.random() * 120, vx: (Math.random() - 0.5) * 1.6, vy: (Math.random() - 0.5) * 1.6, el: a };
+    avispas.push(o);
+  }
+  const mover = (e) => {
+    const r = lienzo.getBoundingClientRect();
+    const p = e.touches ? e.touches[0] : e;
+    px = clamp(p.clientX - r.left - 12, 0, ancho - 24);
+    py = clamp(p.clientY - r.top - 12, 0, alto - 24);
+    jugador.style.left = `${px}px`;
+    jugador.style.top = `${py}px`;
+  };
+  lienzo.addEventListener('mousemove', mover);
+  lienzo.addEventListener('touchmove', mover, { passive: true });
+
+  const paso = () => {
+    if (!mj.activo) return;
+    avispas.forEach((o) => {
+      o.vx += (Math.random() - 0.5) * 0.5;
+      o.vy += (Math.random() - 0.5) * 0.5;
+      o.vx = clamp(o.vx, -2.2, 2.2);
+      o.vy = clamp(o.vy, -2.2, 2.2);
+      o.x += o.vx;
+      o.y += o.vy;
+      if (o.x < 0 || o.x > ancho - 24) o.vx *= -1;
+      if (o.y < 0 || o.y > alto - 24) o.vy *= -1;
+      o.x = clamp(o.x, 0, ancho - 24);
+      o.y = clamp(o.y, 0, alto - 24);
+      o.el.style.left = `${o.x}px`;
+      o.el.style.top = `${o.y}px`;
+      if (Math.hypot(o.x - px, o.y - py) < 22) {
+        picaduras += 1;
+        o.x = Math.random() * ancho;
+        o.y = Math.random() * alto;
+        ctx.setExtra(`Picaduras ${picaduras}/${limite}`);
+        if (picaduras >= limite) ctx.acabar(false, 'El enjambre te cubre entero.');
+      }
+    });
+    if (mj.activo) mj.temporizadores.push(setTimeout(paso, 90));
+  };
+  paso();
+  ctx.setExtra(`Picaduras 0/${limite}`);
+  // Sobrevivir hasta el final = abrirse paso
+  lienzo.__sobrevivir = () => 'Sales del enjambre con vida.';
+}
+
+/* --- 23. Tormenta: cubrirse antes de que caiga el rayo --- */
+function mjRefugio(lienzo, terminar) {
+  const ctx = mjContexto(lienzo, terminar);
+  const refugios = barajar(['🕳️', '🌳', '🪨', '⛺', '🛖']).slice(0, 4);
+  let correcto = Math.floor(Math.random() * 4);
+  let caidos = 0;
+  const fila = document.createElement('div');
+  fila.className = 'mj-refugios';
+  const marca = document.createElement('div');
+  marca.className = 'mj-refugio-marca';
+  marca.textContent = 'Busca dónde meterte: elige el refugio más bajo y cerrado';
+  lienzo.appendChild(marca);
+  lienzo.appendChild(fila);
+
+  const montar = () => {
+    fila.innerHTML = '';
+    correcto = Math.floor(Math.random() * 4);
+    refugios.forEach((icono, i) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'mj-refugio';
+      b.textContent = icono;
+      b.addEventListener('click', () => {
+        if (i === correcto) {
+          ctx.sumar(25, 'Refugio bueno');
+          caidos = 0;
+          ctx.setExtra(`Rayos esquivados ${ctx.puntos / 25}/3`);
+          if (ctx.puntos >= 75) { ctx.acabar(true, 'La tormenta pasa y sigues seco.'); return; }
+        } else {
+          caidos += 1;
+          ctx.setExtra(`Fallos ${caidos}/3`);
+          if (caidos >= 3) { ctx.acabar(false, 'Un rayo cae justo donde estabas.'); return; }
+        }
+        montar();
+      });
+      fila.appendChild(b);
+    });
+  };
+  montar();
+  ctx.setExtra('Fallos 0/3');
+}
+
+/* --- 24. Terremoto: correr a la grieta sin caer --- */
+function mjGrietas(lienzo, terminar) {
+  const ctx = mjContexto(lienzo, terminar);
+  const zona = document.createElement('div');
+  zona.className = 'mj-grietas';
+  lienzo.appendChild(zona);
+  let abiertas = 0;
+  const meta = metaConDificultad(5);
+  const paso = () => {
+    if (!mj.activo) return;
+    zona.innerHTML = '';
+    for (let i = 0; i < 9; i += 1) {
+      const c = document.createElement('button');
+      c.type = 'button';
+      const rota = Math.random() < 0.32;
+      c.className = `mj-grieta${rota ? ' rota' : ''}`;
+      c.textContent = rota ? '⛔' : '·';
+      if (!rota) {
+        c.addEventListener('click', () => {
+          if (c.classList.contains('usada')) return;
+          c.classList.add('usada');
+          c.textContent = '✅';
+          abiertas += 1;
+          ctx.sumar(10);
+          ctx.setExtra(`Suelo firme ${abiertas}/${meta}`);
+          if (abiertas >= meta) ctx.acabar(true, 'Cruzas el suelo agrietado sin caer.');
+        });
+      } else {
+        c.addEventListener('click', () => ctx.acabar(false, 'El suelo se abre y caes al hueco.'));
+      }
+      zona.appendChild(c);
+    }
+    mj.temporizadores.push(setTimeout(paso, 1400));
+  };
+  paso();
+  ctx.setExtra(`Suelo firme 0/${meta}`);
+}
+
+/* --- 25. Inundación: achicar agua antes de hundirte --- */
+function mjAchicar(lienzo, terminar) {
+  const ctx = mjContexto(lienzo, terminar);
+  const agua = document.createElement('div');
+  agua.className = 'mj-agua-nivel';
+  const relleno = document.createElement('div');
+  relleno.className = 'mj-agua-relleno';
+  agua.appendChild(relleno);
+  lienzo.appendChild(agua);
+  const cubo = document.createElement('button');
+  cubo.type = 'button';
+  cubo.className = 'mj-cubo';
+  cubo.textContent = '🪣 Achicar';
+  lienzo.appendChild(cubo);
+  let nivel = 30;
+  cubo.addEventListener('click', () => {
+    nivel = clamp(nivel - 9, 0, 100);
+    ctx.sumar(6);
+    ctx.setExtra(`Agua ${Math.round(nivel)}%`);
+    if (nivel <= 0) ctx.acabar(true, 'Achicas el agua y sales del pozo.');
+  });
+  const subir = () => {
+    if (!mj.activo) return;
+    nivel = clamp(nivel + 5.5 * factorDificultad(), 0, 100);
+    relleno.style.height = `${nivel}%`;
+    ctx.setExtra(`Agua ${Math.round(nivel)}%`);
+    if (nivel >= 100) { ctx.acabar(false, 'El agua te tapa la cabeza.'); return; }
+    mj.temporizadores.push(setTimeout(subir, 500));
+  };
+  subir();
+}
+
+/* --- 26. Sangre: recoger el envío del patrocinador --- */
+function mjEnvios(lienzo, terminar) {
+  const ctx = mjContexto(lienzo, terminar);
+  let cogidos = 0;
+  let perdidos = 0;
+  const meta = metaConDificultad(4);
+  const zona = document.createElement('div');
+  zona.className = 'mj-envios';
+  lienzo.appendChild(zona);
+  const soltar = () => {
+    if (!mj.activo) return;
+    const p = document.createElement('button');
+    p.type = 'button';
+    p.className = 'mj-envio';
+    p.textContent = Math.random() < 0.4 ? '💣' : '🎁';
+    p.style.left = `${Math.random() * 80}%`;
+    p.addEventListener('click', () => {
+      if (p.textContent === '🎁') {
+        cogidos += 1;
+        ctx.sumar(15);
+        ctx.setExtra(`Cogidos ${cogidos}/${meta} · Perdidos ${perdidos}/3`);
+        if (cogidos >= meta) ctx.acabar(true, 'Recoges el envío sin pisar la trampa.');
+      } else {
+        ctx.acabar(false, 'Era una trampa del Capitolio.');
+      }
+      p.remove();
+    });
+    zona.appendChild(p);
+    mj.temporizadores.push(setTimeout(() => {
+      if (p.isConnected) {
+        p.remove();
+        perdidos += 1;
+        ctx.setExtra(`Cogidos ${cogidos}/${meta} · Perdidos ${perdidos}/3`);
+        if (perdidos >= 3) ctx.acabar(false, 'Los paracaídas caen lejos de ti.');
+      }
+    }, 1800));
+    mj.temporizadores.push(setTimeout(soltar, 900));
+  };
+  soltar();
+  ctx.setExtra('Cogidos 0/4 · Perdidos 0/3');
+}
+
+/* --- 27. Niebla: avanzar a ciegas sin tocar el humo --- */
+function mjTunel(lienzo, terminar) {
+  const ctx = mjContexto(lienzo, terminar);
+  const carril = document.createElement('div');
+  carril.className = 'mj-carril';
+  lienzo.appendChild(carril);
+  const N = metaConDificultad(14);
+  let pos = 0;
+  const pintar = () => {
+    carril.innerHTML = '';
+    for (let i = 0; i < N; i += 1) {
+      const d = document.createElement('div');
+      d.className = 'mj-carril-celda';
+      if (i === pos) d.classList.add('yo');
+      if (i > pos) d.classList.add('niebla');
+      d.textContent = i === pos ? '🧍' : '';
+      carril.appendChild(d);
+    }
+    ctx.setExtra(`Pasos ${pos}/${N - 1}`);
+  };
+  const avanzar = (n) => {
+    pos = clamp(pos + n, 0, N - 1);
+    if (pos >= N - 1) { ctx.acabar(true, 'Sales de la niebla con los ojos llorosos pero viva.'); return; }
+    if (Math.random() < 0.22) { ctx.acabar(false, 'Das un paso de más y respiras el humo espeso.'); return; }
+    ctx.sumar(6);
+    pintar();
+  };
+  lienzo.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight') avanzar(1);
+  });
+  const b1 = document.createElement('button');
+  b1.type = 'button'; b1.className = 'mj-paso'; b1.textContent = 'Un paso 👣';
+  b1.addEventListener('click', () => avanzar(1));
+  const b2 = document.createElement('button');
+  b2.type = 'button'; b2.className = 'mj-paso'; b2.textContent = 'Dos pasos rápidos 🏃';
+  b2.addEventListener('click', () => { if (Math.random() < 0.35) { ctx.acabar(false, 'Corres a ciegas y te tragas la niebla.'); return; } avanzar(2); });
+  lienzo.appendChild(b1);
+  lienzo.appendChild(b2);
+  pintar();
+}
+
+/* --- 28. Caza · Acecho: espera el momento y dispara sin asustarla --- */
+function mjAcecho(lienzo, terminar) {
+  const ctx = mjContexto(lienzo, terminar);
+  const zona = ctx.pieza('mj-acecho-zona');
+  const aguja = ctx.pieza('mj-acecho-aguja');
+  let pos = 0, dir = 1, tiros = 3, presas = 0;
+  ctx.setExtra('Flechas: 3/3');
+  const animar = () => {
+    pos += dir * 2.1;
+    if (pos > 100 || pos < 0) { dir *= -1; pos = clamp(pos, 0, 100); }
+    aguja.style.left = `${pos}%`;
+    mj.raf = requestAnimationFrame(animar);
+  };
+  mj.raf = requestAnimationFrame(animar);
+  const disparar = () => {
+    if (tiros <= 0) return;
+    tiros -= 1;
+    ctx.setExtra(`Flechas: ${tiros}/3`);
+    // La zona buena se mueve cada tiro, como la presa
+    const dentro = pos > 40 && pos < 62;
+    if (dentro) { presas += 1; ctx.sumar(30, '¡En el blanco!'); } else ctx.sumar(-5, 'Fallo');
+    if (tiros <= 0) {
+      ctx.acabar(presas > 0, presas > 0 ? 'Aciertas y vuelves con carne.' : 'La presa se te escapa.');
+      return;
+    }
+    zona.style.left = `${20 + Math.random() * 40}%`;
+  };
+  lienzo.addEventListener('pointerdown', disparar);
+  mj.limpiar = () => lienzo.removeEventListener('pointerdown', disparar);
+}
+
+/* --- 29. Caza · Rastro: sigue las huellas correctas hasta la presa --- */
+function mjRastro(lienzo, terminar) {
+  const ctx = mjContexto(lienzo, terminar);
+  const iconos = ['🐾', '🌿', '🪨'];
+  let paso = 0;
+  const meta = metaConDificultad(4);
+  ctx.setExtra(`Huellas 0/${meta}`);
+  const pintar = () => {
+    lienzo.querySelectorAll('.mj-rastro').forEach((n) => n.remove());
+    const caja = document.createElement('div');
+    caja.className = 'mj-rastro';
+    barajar(iconos).forEach((ic) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'mj-rastro__pista';
+      b.textContent = ic;
+      b.addEventListener('click', () => {
+        if (ic === '🐾') {
+          paso += 1;
+          ctx.sumar(20);
+          ctx.setExtra(`Huellas ${paso}/${meta}`);
+          if (paso >= meta) ctx.acabar(true, 'Encuentras el rastro y la presa.');
+          else pintar();
+        } else {
+          ctx.acabar(false, 'Sigues el rastro equivocado y la presa te oye.');
+        }
+      });
+      caja.appendChild(b);
+    });
+    lienzo.appendChild(caja);
+  };
+  pintar();
+}
+
 const MINIJUEGOS = {
+  acecho: {
+    etiqueta: 'MINIJUEGO · CAZA',
+    titulo: 'Acechar la presa',
+    instrucciones: 'La aguja recorre el carril. Dispara cuando esté dentro de la zona dorada. Tienes tres flechas.',
+    segundos: 9,
+    fallo: 'La presa te oye y se va.',
+    montar: mjAcecho
+  },
+  rastro: {
+    etiqueta: 'MINIJUEGO · CAZA',
+    titulo: 'Seguir el rastro',
+    instrucciones: 'Elige siempre la huella 🐾 y no las plantas ni las piedras. Cuatro huellas seguidas y encuentras la presa.',
+    segundos: 10,
+    fallo: 'Pierdes el rastro entre los árboles.',
+    montar: mjRastro
+  },
+  enjambre: {
+    etiqueta: 'MINIJUEGO · ENJAMBRE',
+    titulo: 'Cruzar el enjambre',
+    instrucciones: 'Mueve el ratón o el dedo para llevar al tributo por el enjambre sin que te piquen cuatro veces.',
+    segundos: 10,
+    fallo: 'El enjambre te cubre entero.',
+    montar: mjEnjambre
+  },
+  refugio: {
+    etiqueta: 'MINIJUEGO · TORMENTA',
+    titulo: 'Buscar refugio',
+    instrucciones: 'Elige el refugio correcto tres veces seguidas. Cada fallo te acerca al rayo.',
+    segundos: 9,
+    fallo: 'Un rayo cae justo donde estabas.',
+    montar: mjRefugio
+  },
+  grietas: {
+    etiqueta: 'MINIJUEGO · SUELO',
+    titulo: 'Cruzar las grietas',
+    instrucciones: 'Pulsa las casillas firmes para cruzar. Las marcadas con ⛔ son huecos: si las tocas, caes.',
+    segundos: 9,
+    fallo: 'El suelo se abre y caes al hueco.',
+    montar: mjGrietas
+  },
+  achicar: {
+    etiqueta: 'MINIJUEGO · AGUA',
+    titulo: 'Achicar el pozo',
+    instrucciones: 'Pulsa el cubo sin parar: el agua sube sola y hay que bajarla a cero.',
+    segundos: 10,
+    fallo: 'El agua te tapa la cabeza.',
+    montar: mjAchicar
+  },
+  envios: {
+    etiqueta: 'MINIJUEGO · PARACAÍDAS',
+    titulo: 'Recoger el envío',
+    instrucciones: 'Pulsa los regalos 🎁 antes de que caigan fuera. Si tocas una trampa 💣, se acaba.',
+    segundos: 10,
+    fallo: 'Los paracaídas caen lejos de ti.',
+    montar: mjEnvios
+  },
+  tunel: {
+    etiqueta: 'MINIJUEGO · NIEBLA',
+    titulo: 'Avanzar a ciegas',
+    instrucciones: 'Avanza paso a paso por la niebla hasta la salida. Los pasos rápidos ahorran tiempo pero te llenan los pulmones.',
+    segundos: 11,
+    fallo: 'Das un paso de más y respiras el humo espeso.',
+    montar: mjTunel
+  },
   niebla: {
     etiqueta: 'MINIJUEGO · AIRE',
     titulo: 'Buscar aire limpio',
     instrucciones: 'Pulsa celdas para avanzar por la niebla. Las celdas oscuras (☠) tienen mucho veneno: te quitan aire. Llega a la puerta 🚪 antes de quedarte sin aire.',
-    segundos: 14,
+    segundos: 11,
     fallo: 'El veneno te llena los pulmones.',
     montar: mjNiebla
   },
@@ -3702,7 +4194,7 @@ const MINIJUEGOS = {
     etiqueta: 'MINIJUEGO · ENJAMBRE',
     titulo: 'Matar el enjambre',
     instrucciones: 'Pulsa las avispas para matarlas antes de que te piquen tres veces. Cuantas más mates, más puntos.',
-    segundos: 12,
+    segundos: 10,
     fallo: 'El enjambre te alcanza.',
     montar: mjAvispas
   },
@@ -3710,7 +4202,7 @@ const MINIJUEGOS = {
     etiqueta: 'MINIJUEGO · INSTINTO',
     titulo: 'Escapar de la manada',
     instrucciones: 'Elige la salida correcta en cada ronda. Solo una opción te mantiene vivo; las demás te entregan a los mutos.',
-    segundos: 12,
+    segundos: 10,
     fallo: 'La manada te alcanza.',
     montar: mjBestias
   },
@@ -3718,7 +4210,7 @@ const MINIJUEGOS = {
     etiqueta: 'MINIJUEGO · EQUILIBRIO',
     titulo: 'Aguantar el temblor',
     instrucciones: 'Mueve el ratón o el dedo para mantenerte dentro de la zona dorada mientras el suelo se mueve. Si te salen tres caídas, el suelo te traga.',
-    segundos: 9,
+    segundos: 8,
     fallo: 'El suelo se abre bajo tus pies.',
     montar: mjTerremoto
   },
@@ -3726,7 +4218,7 @@ const MINIJUEGOS = {
     etiqueta: 'MINIJUEGO · ESCALADA',
     titulo: 'Subir antes del agua',
     instrucciones: 'Pulsa las plataformas en orden, de la más baja a la más alta, antes de que el agua te alcance.',
-    segundos: 9,
+    segundos: 8,
     fallo: 'El agua te arrastra.',
     montar: mjInundacion
   },
@@ -3734,7 +4226,7 @@ const MINIJUEGOS = {
     etiqueta: 'MINIJUEGO · REFLEJOS',
     titulo: 'Descargar los rayos',
     instrucciones: 'Pulsa cada rayo ⚡ antes de que caiga. Si se te escapan tres, te alcanza la corriente.',
-    segundos: 12,
+    segundos: 10,
     fallo: 'Te alcanza un rayo.',
     montar: mjTormenta
   },
@@ -3742,7 +4234,7 @@ const MINIJUEGOS = {
     etiqueta: 'MINIJUEGO · AGUANTE',
     titulo: 'Lluvia de sangre',
     instrucciones: 'Pulsa todas las zonas de la arena sin quedarte quieto más de un segundo. Si te paran cuatro veces, la lluvia te cubre.',
-    segundos: 12,
+    segundos: 10,
     fallo: 'La lluvia te cubre.',
     montar: mjSangre
   },
@@ -3750,7 +4242,7 @@ const MINIJUEGOS = {
     etiqueta: 'MINIJUEGO · SUPERVIVENCIA',
     titulo: 'Esquivar la flecha',
     instrucciones: 'Mueve al tributo con las flechas ← → (o A y D) para esquivar lo que cae del cielo. Te pueden dar tres veces.',
-    segundos: 12,
+    segundos: 10,
     fallo: 'Te alcanzan demasiadas veces.',
     montar: mjEsquivar
   },
@@ -3766,7 +4258,7 @@ const MINIJUEGOS = {
     etiqueta: 'MINIJUEGO · PERSECUCIÓN',
     titulo: 'Carrera de fondo',
     instrucciones: 'Alterna ← y → (o A y D) rápidamente para correr. Si repites la misma tecla no avanzas.',
-    segundos: 12,
+    segundos: 10,
     fallo: 'Te alcanzan por detrás.',
     montar: mjCarrera
   },
@@ -3774,7 +4266,7 @@ const MINIJUEGOS = {
     etiqueta: 'MINIJUEGO · DUELO',
     titulo: 'Pulseada',
     instrucciones: 'Pulsa sin parar para empujar la barra hasta el final antes de que él te doble el brazo.',
-    segundos: 8,
+    segundos: 9,
     fallo: 'Te dobla el brazo.',
     montar: mjPulseada
   },
@@ -3782,7 +4274,7 @@ const MINIJUEGOS = {
     etiqueta: 'MINIJUEGO · INGENIO',
     titulo: 'Lectura del Capitolio',
     instrucciones: 'Encuentra la palabra clave entre las demás y púlsala antes de que desaparezca.',
-    segundos: 8,
+    segundos: 7,
     fallo: 'Se acaba el tiempo antes de encontrarla.',
     montar: mjLectura
   },
@@ -3790,7 +4282,7 @@ const MINIJUEGOS = {
     etiqueta: 'MINIJUEGO · TEMPLE',
     titulo: 'Cuerda floja',
     instrucciones: 'Mantén pulsado para subir y suelta para bajar. Mantén la marca dentro de la zona dorada.',
-    segundos: 9,
+    segundos: 8,
     fallo: 'Pierdes el equilibrio.',
     montar: mjEquilibrio
   },
@@ -3798,7 +4290,7 @@ const MINIJUEGOS = {
     etiqueta: 'MINIJUEGO · COMBATE',
     titulo: 'Pulso de fuerza',
     instrucciones: 'Pulsa en el momento en que la aguja pase por la zona dorada.',
-    segundos: 5,
+    segundos: 4,
     fallo: 'Te has quedado sin tiempo.',
     montar: mjPulso
   },
@@ -3806,7 +4298,7 @@ const MINIJUEGOS = {
     etiqueta: 'MINIJUEGO · PUNTERÍA',
     titulo: 'Tiro de arco',
     instrucciones: 'El punto de mira se mueve. Pulsa cuando esté dentro del círculo dorado.',
-    segundos: 6,
+    segundos: 5,
     fallo: 'La presa se escapa.',
     montar: mjDiana
   },
@@ -3814,7 +4306,7 @@ const MINIJUEGOS = {
     etiqueta: 'MINIJUEGO · SIGILO',
     titulo: 'Nudo de cuerda',
     instrucciones: 'Arrastra el dedo o el ratón desde el punto blanco hasta el otro extremo sin salirte de la cuerda.',
-    segundos: 8,
+    segundos: 7,
     fallo: 'La cuerda se queda floja.',
     montar: mjCuerda
   },
@@ -3822,7 +4314,7 @@ const MINIJUEGOS = {
     etiqueta: 'MINIJUEGO · CURACIÓN',
     titulo: 'Aguja firme',
     instrucciones: 'Pulsa los puntos en orden, de izquierda a derecha de la lista de abajo: primero el marcado, luego el siguiente.',
-    segundos: 7,
+    segundos: 6,
     fallo: 'Te tiembla la mano.',
     montar: mjAguja
   },
@@ -3830,7 +4322,7 @@ const MINIJUEGOS = {
     etiqueta: 'MINIJUEGO · ORIENTACIÓN',
     titulo: 'Memoria del sector',
     instrucciones: 'Mira la secuencia de sectores que se iluminan y repítela en el mismo orden.',
-    segundos: 10,
+    segundos: 9,
     fallo: 'No recuerdas el orden.',
     montar: mjMemoria
   },
@@ -3838,7 +4330,7 @@ const MINIJUEGOS = {
     etiqueta: 'MINIJUEGO · CAZA',
     titulo: 'Cazar la presa',
     instrucciones: 'La presa corre por el suelo y bota. Pulsa justo encima para disparar la flecha. Tienes 3 flechas: con una presa basta.',
-    segundos: 12,
+    segundos: 10,
     fallo: 'La presa se pierde entre los árboles.',
     montar: mjCazar
   },
@@ -3846,7 +4338,7 @@ const MINIJUEGOS = {
     etiqueta: 'MINIJUEGO · CURACIÓN',
     titulo: 'Enrollar la venda',
     instrucciones: 'Arrastra el dedo o el ratón en círculo alrededor de la herida, sin salirte del borde. Da cinco vueltas completas.',
-    segundos: 14,
+    segundos: 12,
     fallo: 'La venda se queda suelta y la herida sigue sangrando.',
     montar: mjVendaje
   },
@@ -3854,7 +4346,7 @@ const MINIJUEGOS = {
     etiqueta: 'MINIJUEGO · BOTÍN',
     titulo: 'Saqueo a contrarreloj',
     instrucciones: 'Solo puedes coger 3 objetos antes de que llegue el otro tributo. Elige bien: los que brillan en verde sirven, los grises son basura.',
-    segundos: 6,
+    segundos: 5,
     fallo: 'Llega el otro tributo y te vas con las manos vacías.',
     montar: mjSaqueo
   }
@@ -3901,6 +4393,17 @@ function cambiarClima() {
   estado.clima = elegir(opciones).id;
 }
 
+/* ---------- Reloj de la partida ----------
+   Cada elección hace pasar una hora. El reloj nunca se queda parado:
+   si se pasa de las 24, la arena entra en un día nuevo. */
+function avanzarHora(horas = 1) {
+  estado.hora = ((estado.hora || 0) + horas) % 24;
+  estado.dia = (estado.dia || 1) + Math.floor(((estado.horaAnterior || 0) + horas) / 24);
+  estado.horaAnterior = estado.hora;
+  if (typeof actualizarRelojMapa === 'function') actualizarRelojMapa();
+  if (typeof actualizarHUD === 'function') actualizarHUD();
+}
+
 /* Comprueba si puedes hacer una acción libre (no en mitad de una decisión) */
 function puedeActuar() {
   return !estado.fin && !estado.esperandoEleccion && escenaActual;
@@ -3910,6 +4413,9 @@ function puedeActuar() {
 async function cerrarTurnoLibre() {
   estado.esperandoEleccion = false;
   estado.turno += 1;
+  avanzarHora(1);
+  estado.cazarHoras = (estado.cazarHoras || 0) + 1;
+  recargarCaza();
   cambiarClima();
   gastarHambreSed(estado.cansancio > 70 ? 2 : 1);
   procesarEnfermedad();
@@ -4141,52 +4647,76 @@ async function buscarAgua() {
 }
 
 /* ---------- 1. Cazar ---------- */
+/* Tres minijuegos exclusivos de la caza: se rota entre ellos y nunca se repite el anterior */
+const MJ_CAZA = ['cazar', 'acecho', 'rastro'];
+
 async function cazar() {
   if (!puedeActuar()) return;
   if (estado.cazar <= 0) {
     narrar('<span class="ayuda">Ya no te quedan fuerzas para cazar. Ni para casi nada.</span>');
     return;
   }
+
+  // Se reserva la acción y se bloquea el panel mientras dura la caza:
+  // así no se puede pulsar dos veces ni gastar el intento sin jugar.
   estado.cazar -= 1;
   estado.cansancio = clamp(estado.cansancio + 14, 0, 100);
+  estado.esperandoEleccion = true;
+  actualizarHUD();
+  pintarTributosHUD();
 
-  const suerte = clamp(0.18 + estado.stats.supervivencia * 0.055 + estado.stats.agilidad * 0.035
-    + climaActual().escondite - (estado.cansancio / 100) * 0.2 - presionArena() * 0.12, 0.1, 0.92);
+  const disponibles = MJ_CAZA.filter((m) => m !== estado.ultimaCaza);
+  const juego = disponibles.length ? elegir(disponibles) : elegir(MJ_CAZA);
+  estado.ultimaCaza = juego;
 
-  // Con el hambre apretando (40 o menos) o sin nada en el equipo, hay que apuntar de verdad
-  const apurado = estado.hambre <= 40 && !estado.inventario.some((i) => COMIDA[i]);
-  if (apurado) {
-    const cazado = await jugarMinijuego('cazar');
-    if (estado.fin) return;
-    if (cazado) {
-      const presa = elegir(['Carne asada', 'Pescado ahumado', 'Raciones']);
-      anadirObjetos([presa]);
-      estado.cordura = clamp(estado.cordura + 4, 0, 100);
-      estado.ultimoEco = `Antes: cazaste y volviste con ${presa}.`;
-      narrar(`<span class="linea-bien">Aguantas la respiración, corriges la puntería y aciertas. Vuelves con <em>${escapar(presa)}</em>. El hambre puede esperar.</span>`);
-      cerrarTurnoLibre();
-      return;
-    }
-    const h = nuevaHerida('leve');
-    estado.ultimoEco = 'Antes: la presa se te escapó entre los árboles.';
-    narrar(`<span class="linea-muerte">La presa te oye antes de que dispares y sale corriendo. Vuelves con las manos vacías: <em>${escapar(h.nombre)}</em>.</span>`);
-    cerrarTurnoLibre();
-    return;
+  let cazado = false;
+  try {
+    cazado = await jugarMinijuego(juego);
+  } catch (e) {
+    cazado = false;
   }
+  estado.esperandoEleccion = false;
+  if (estado.fin) return;
 
-  if (Math.random() < suerte) {
-    const piezas = ['Carne asada', 'Pescado ahumado', 'Bayas secas', 'Raciones'];
-    const presa = elegir(piezas);
+  // La caza siempre resuelve el turno: salga bien, mal o se abandone
+  if (cazado) {
+    const presa = elegir(['Carne asada', 'Pescado ahumado', 'Raciones']);
     anadirObjetos([presa]);
     estado.cordura = clamp(estado.cordura + 4, 0, 100);
     estado.ultimoEco = `Antes: cazaste y volviste con ${presa}.`;
-    narrar(`<span class="linea-bien">Cazas con paciencia. Vuelves con <em>${escapar(presa)}</em> y las manos sucias. El hambre puede esperar.</span>`);
+    narrar(`<span class="linea-bien">Aguantas la respiración, corriges la puntería y aciertas. Vuelves con <em>${escapar(presa)}</em>. El hambre puede esperar.</span>`);
   } else {
     const h = nuevaHerida('leve');
     estado.ultimoEco = 'Antes: saliste a cazar y volviste con las manos vacías.';
-    narrar(`<span class="linea-muerte">Sales a cazar y vuelves con las manos vacías: <em>${escapar(h.nombre)}</em>. La arena cobra por intentarlo.</span>`);
+    narrar(`<span class="linea-muerte">La presa te oye antes de que dispares y sale corriendo. Vuelves con las manos vacías: <em>${escapar(h.nombre)}</em>. La arena cobra por intentarlo.</span>`);
   }
+  actualizarHUD();
   cerrarTurnoLibre();
+}
+
+/* La caza se recarga con el tiempo: un intento nuevo cada 4 horas de partida,
+   con un máximo de 3. Así se puede volver a cazar si aguantas lo suficiente. */
+const CAZA_RECARGA_HORAS = 4;
+const CAZA_MAXIMO = 3;
+
+function recargarCaza() {
+  const horas = estado.cazarHoras || 0;
+  if (!horas) return;
+  const ganados = Math.floor(horas / CAZA_RECARGA_HORAS);
+  if (!ganados) return;
+  estado.cazarHoras = horas - ganados * CAZA_RECARGA_HORAS;
+  const antes = estado.cazar;
+  estado.cazar = Math.min(CAZA_MAXIMO, (estado.cazar || 0) + ganados);
+  if (estado.cazar > antes) {
+    narrar('<span class="linea-bien">Descansas lo justo y recuperas fuerzas para salir a cazar otra vez.</span>');
+  }
+}
+
+/* Cuánto falta para el siguiente intento, para enseñarlo en el botón */
+function textoRecargaCaza() {
+  if (estado.cazar >= CAZA_MAXIMO) return `${estado.cazar}`;
+  const faltan = CAZA_RECARGA_HORAS - ((estado.cazarHoras || 0) % CAZA_RECARGA_HORAS);
+  return `${estado.cazar} · +1 en ${faltan} h`;
 }
 
 /* ---------- 2. Trampas ---------- */
@@ -4500,6 +5030,8 @@ function reabrirCornucopia() {
       }
       estado.ultimaAccion = { tipo: 'riesgo', bien: true };
       estado.turno += 1;
+      avanzarHora(1);
+      estado.cazarHoras = (estado.cazarHoras || 0) + 1;
       actualizarHUD();
       pintarTributosHUD();
       pintarMapa();
@@ -4594,6 +5126,8 @@ function fiestaCapitolio() {
         $('#caja-acontecimiento').hidden = true;
       }
       estado.turno += 1;
+      avanzarHora(1);
+      estado.cazarHoras = (estado.cazarHoras || 0) + 1;
       actualizarHUD();
       pintarTributosHUD();
       pintarMapa();
@@ -4708,6 +5242,9 @@ async function elegirOpcion(op) {
   }
   estado.historial.push({ tipo: op.tipo, texto: op.texto, bien: saleBien });
   estado.turno += 1;
+  avanzarHora(1);
+  estado.cazarHoras = (estado.cazarHoras || 0) + 1;
+  recargarCaza();
   estado.ultimaAccion = { tipo: op.tipo, bien: saleBien };
 
   narrar(resultado.html, resultado.clase || '');
@@ -5164,7 +5701,7 @@ async function lanzarAcontecimiento() {
   estado.ultimoEvento = ac.id;
 
   estado.sector = (estado.sector % 12) + 1;
-  estado.hora = (estado.hora + 2) % 24;
+  // El acontecimiento no mueve el reloj por su cuenta: cada elección avanza una hora
 
   const caja = $('#caja-acontecimiento');
   caja.hidden = false;
@@ -5183,11 +5720,21 @@ async function lanzarAcontecimiento() {
   let esquiva = clamp(0.4 + (estado.stats.agilidad + estado.stats.supervivencia) * 0.035, 0.2, 0.9);
 
   // Minijuego del acontecimiento: el resultado manda sobre la suerte
-  const mjEvento = {
-    niebla: 'niebla', avispas: 'avispas', bestias: 'bestias',
-    terremoto: 'terremoto', inundacion: 'inundacion',
-    tormenta: 'tormenta', sangre: 'sangre'
-  }[ac.id];
+  // Cada acontecimiento tiene dos o tres minijuegos posibles y se rota entre ellos
+  const OPCIONES_MJ_EVENTO = {
+    niebla: ['niebla', 'tunel'],
+    avispas: ['avispas', 'enjambre'],
+    bestias: ['bestias', 'carrera'],
+    terremoto: ['terremoto', 'grietas'],
+    inundacion: ['inundacion', 'achicar'],
+    tormenta: ['tormenta', 'refugio'],
+    sangre: ['sangre', 'envios']
+  };
+  if (!estado.mjEventoUsados) estado.mjEventoUsados = {};
+  const posibles = (OPCIONES_MJ_EVENTO[ac.id] || []).filter((m) => m !== estado.mjEventoUsados[ac.id]);
+  const elegido = posibles.length ? elegir(posibles) : (OPCIONES_MJ_EVENTO[ac.id] || [])[0];
+  if (elegido) estado.mjEventoUsados[ac.id] = elegido;
+  const mjEvento = elegido;
   let resultadoMinijuego = null;
   if (mjEvento && !estado.fin) {
     resultadoMinijuego = await jugarMinijuego(mjEvento);
@@ -5271,6 +5818,8 @@ function actualizarHUD() {
   $('#hud-nombre').textContent = estado.nombre;
   $('#hud-distrito').textContent = `Distrito ${yo.distrito} · ${ROLES[estado.rol].nombre} · Ed. ${estado.edicion}`;
   $('#hud-hora').textContent = horaLegible(estado.hora);
+  const elDia = $('#hud-dia');
+  if (elDia) elDia.textContent = `Día ${estado.dia || 1}`;
   $('#hud-sector').textContent = estado.arena === 'reloj' ? `Sector ${estado.sector}` : ARENAS[estado.arena].nombre;
 
   $('#val-vida').textContent = Math.round(estado.vida);
@@ -5314,7 +5863,7 @@ function actualizarHUD() {
 
   // Acciones propias de la arena
   const setTxt = (id, v) => { const el = $(id); if (el) el.textContent = v; };
-  setTxt('#info-cazar', estado.cazar);
+  setTxt('#info-cazar', textoRecargaCaza());
   setTxt('#info-trampa', estado.trampas);
   setTxt('#info-pedir', estado.pedir);
   const cl = climaActual();
